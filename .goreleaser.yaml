@@ -1,0 +1,44 @@
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+homebrew_casks:
+  - name: eolwhen
+    binaries:
+      - eolwhen
+    homepage: "https://github.com/iwamot/eolwhen"
+    description: "Say which of a directory's declared versions are out of support."
+    repository:
+      owner: iwamot
+      name: homebrew-tap
+    skip_upload: "true"
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  draft: true
+  use_existing_draft: true
+
+changelog:
+  use: github-native
