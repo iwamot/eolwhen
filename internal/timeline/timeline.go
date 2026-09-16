@@ -1,0 +1,224 @@
+// Package timeline turns matched declarations into the one ordered list that
+// is this tool's answer, and renders it. Nothing here does I/O.
+package timeline
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/iwamot/eolwhen/internal/decl"
+)
+
+// Finding is one declaration placed on the timeline: what it names, which
+// release cycle it falls in, and the day that cycle goes out of support.
+type Finding struct {
+	Product string
+	Cycle   string
+	EOL     time.Time
+	Source  decl.Source
+}
+
+// What names the software and cycle, as one column.
+func (f Finding) What() string { return f.Product + " " + f.Cycle }
+
+// Days is how many days away the end of support is, as of now: negative
+// once it has passed, positive while it is ahead.
+//
+// Both are reduced to a calendar day first, each in its own reckoning: the
+// end-of-life date carries no zone because endoflife.date publishes a date
+// and not a moment, and now is counted on the calendar of whoever is asking.
+// Anything else puts a date and a number that disagree on the same row —
+// east of Greenwich, a cycle ending on the day shown would read as a day
+// away for the first hours of it.
+func Days(now time.Time, f Finding) int {
+	return int(day(f.EOL).Sub(day(now)) / (24 * time.Hour))
+}
+
+// day drops everything below the date, keeping the year, month, and day as
+// they read in whatever zone t carries.
+func day(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// Past reports whether support has already ended. The end-of-life date is
+// the first day without support, so a finding due today is already past.
+func Past(now time.Time, f Finding) bool { return Days(now, f) <= 0 }
+
+// Sort orders the list by the day itself, oldest first, so the most overdue
+// reads at the top and the timeline runs in one direction. Findings sharing
+// a day are ordered by what they name, then by where they were found, so the
+// output does not move between runs.
+//
+// Where they were found is compared as a path and then as a number, because
+// a Dockerfile that names the same image in four stages would otherwise put
+// line 8 after line 62.
+func Sort(fs []Finding) {
+	sort.SliceStable(fs, func(i, j int) bool {
+		if !fs[i].EOL.Equal(fs[j].EOL) {
+			return fs[i].EOL.Before(fs[j].EOL)
+		}
+		if fs[i].What() != fs[j].What() {
+			return fs[i].What() < fs[j].What()
+		}
+		if fs[i].Source.File != fs[j].Source.File {
+			return fs[i].Source.File < fs[j].Source.File
+		}
+		return fs[i].Source.Line < fs[j].Source.Line
+	})
+}
+
+// Within drops findings further ahead than d. Past findings are always kept:
+// the window narrows what is coming, never what has already expired.
+func Within(fs []Finding, now time.Time, d time.Duration) []Finding {
+	limit := int(d / (24 * time.Hour))
+	var out []Finding
+	for _, f := range fs {
+		if Past(now, f) || Days(now, f) <= limit {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// Counts reports how many findings are behind and ahead, which is what the
+// exit code is made of.
+func Counts(fs []Finding, now time.Time) (past, future int) {
+	for _, f := range fs {
+		if Past(now, f) {
+			past++
+		} else {
+			future++
+		}
+	}
+	return past, future
+}
+
+// Distance renders how far off the end of support is, for the first column.
+//
+// The sign says which side of today a date falls on, so the day it lands on
+// carries none: +0d reads as still to come, for something that has already
+// arrived.
+func Distance(now time.Time, f Finding) string {
+	d := Days(now, f)
+	if d == 0 {
+		return "0d"
+	}
+	return fmt.Sprintf("%+dd", d)
+}
+
+// Table renders the findings as aligned columns: the signed distance in
+// days, the day itself, what it names, and where it was declared. There is
+// no header, so every line of stdout is a finding and awk can read the
+// columns without skipping one.
+func Table(fs []Finding, now time.Time) string {
+	rows := make([][3]string, 0, len(fs))
+	for _, f := range fs {
+		rows = append(rows, [3]string{
+			Distance(now, f),
+			f.EOL.Format(time.DateOnly),
+			f.What(),
+		})
+	}
+	var width [3]int
+	for _, r := range rows {
+		for i := range r {
+			width[i] = max(width[i], len(r[i]))
+		}
+	}
+	var b strings.Builder
+	for i, r := range rows {
+		fmt.Fprintf(&b, "%*s  %-*s  %-*s  %s\n",
+			width[0], r[0], width[1], r[1], width[2], r[2], fs[i].Source)
+	}
+	return b.String()
+}
+
+// Report is one run's whole answer, as the document renders it.
+type Report struct {
+	Directory  string
+	Findings   []Finding
+	Unreadable []decl.Unreadable
+	// Hidden is how many findings a window kept out of Findings.
+	Hidden int
+	// Untracked is filled only when it was asked for, since a tool list
+	// names plenty of software with no end-of-life policy at all.
+	Untracked []decl.Decl
+}
+
+type document struct {
+	Directory  string       `json:"directory"`
+	Findings   []entry      `json:"findings"`
+	Unreadable []unreadable `json:"unreadable"`
+	Hidden     int          `json:"hidden"`
+	Untracked  []untracked  `json:"untracked"`
+}
+
+type untracked struct {
+	Source  string `json:"source"`
+	Product string `json:"product"`
+	Version string `json:"version"`
+}
+
+type entry struct {
+	Product string `json:"product"`
+	Cycle   string `json:"cycle"`
+	EOL     string `json:"eol"`
+	Days    int    `json:"days"`
+	Past    bool   `json:"past"`
+	Source  string `json:"source"`
+}
+
+// unreadable carries the product apart from the text when the file named
+// them apart, and an empty product when the text is the whole of what was
+// written, as with an image reference.
+type unreadable struct {
+	Source  string `json:"source"`
+	Product string `json:"product"`
+	Text    string `json:"text"`
+	Reason  string `json:"reason"`
+}
+
+// JSON renders the same answer as one document. Everything the table needs
+// said in words on stderr is a field here instead, so a caller reading the
+// document is owed nothing it cannot see.
+func JSON(r Report, now time.Time) string {
+	doc := document{
+		Directory:  r.Directory,
+		Findings:   []entry{},
+		Unreadable: []unreadable{},
+		Hidden:     r.Hidden,
+		Untracked:  []untracked{},
+	}
+	for _, f := range r.Findings {
+		doc.Findings = append(doc.Findings, entry{
+			Product: f.Product,
+			Cycle:   f.Cycle,
+			EOL:     f.EOL.Format(time.DateOnly),
+			Days:    Days(now, f),
+			Past:    Past(now, f),
+			Source:  f.Source.String(),
+		})
+	}
+	for _, u := range r.Unreadable {
+		doc.Unreadable = append(doc.Unreadable, unreadable{
+			Source:  u.Source.String(),
+			Product: u.Product,
+			Text:    u.Text,
+			Reason:  u.Reason,
+		})
+	}
+	for _, d := range r.Untracked {
+		doc.Untracked = append(doc.Untracked, untracked{
+			Source:  d.Source.String(),
+			Product: d.Product,
+			Version: d.Version,
+		})
+	}
+	// The document holds only strings, numbers, and booleans, so Marshal
+	// cannot fail.
+	b, _ := json.MarshalIndent(doc, "", "  ")
+	return string(b) + "\n"
+}
