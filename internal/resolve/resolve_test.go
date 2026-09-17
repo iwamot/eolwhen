@@ -99,8 +99,6 @@ func TestAllReports(t *testing.T) {
 			"names a variant or an alias, not a version"},
 		{"an alias", decl.Decl{Product: "python", Version: "latest-slim", Source: src("x")},
 			"names a variant or an alias, not a version"},
-		{"cycle has no date yet", decl.Decl{Product: "nodejs", Version: "26.1.0", Source: src("x")},
-			"has no announced end-of-life date"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := All(load(t), []decl.Decl{tt.d}, nil)
@@ -111,6 +109,19 @@ func TestAllReports(t *testing.T) {
 				t.Fatalf("Unreadable = %+v; want reason %q", r.Unreadable, tt.reason)
 			}
 		})
+	}
+}
+
+// TestAllSetsAsideUndated covers the cycle endoflife.date has not given an
+// end date: the line is right and the cycle is there, so there is nothing to
+// report and nothing to do. It is kept so --verbose can account for it.
+func TestAllSetsAsideUndated(t *testing.T) {
+	r := All(load(t), []decl.Decl{{Product: "nodejs", Version: "26.1.0", Source: src("x")}}, nil)
+	if len(r.Findings) != 0 || len(r.Unreadable) != 0 || len(r.Untracked) != 0 {
+		t.Fatalf("All = %+v; want nothing placed and nothing reported", r)
+	}
+	if len(r.Undated) != 1 || r.Undated[0].Product != "nodejs" || r.Undated[0].Cycle != "26" {
+		t.Errorf("Undated = %+v; want nodejs 26", r.Undated)
 	}
 }
 

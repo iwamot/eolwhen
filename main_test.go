@@ -145,6 +145,7 @@ func TestNotes(t *testing.T) {
 	f := timeline.Finding{Product: "python", Cycle: "2.7", EOL: at("2020-01-01")}
 	ahead := timeline.Finding{Product: "nodejs", Cycle: "24", EOL: at("2028-04-30")}
 	u := decl.Unreadable{Source: decl.Source{File: ".nvmrc", Line: 1}, Text: "lts/hydrogen", Reason: "names a moving target, not a version"}
+	undated := timeline.Undated{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}
 
 	tests := []struct {
 		name  string
@@ -154,11 +155,19 @@ func TestNotes(t *testing.T) {
 		want  []string
 	}{
 		{"everything named software with no policy", resolve.Result{}, nil, cliArgs{},
-			[]string{"nothing endoflife.date tracks was declared in dir"}},
-		{"everything was unreadable", resolve.Result{Unreadable: []decl.Unreadable{u}}, nil, cliArgs{},
-			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version", "nothing could be placed on the timeline"}},
+			[]string{"nothing declared in dir is tracked by endoflife.date"}},
+		// Nothing is wrong with the directory and nothing is owed, so the
+		// one line says so rather than complaining once per declaration.
+		{"nothing has a date yet", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{},
+			[]string{"nothing declared in dir has an end-of-life date yet"}},
+		{"and is accounted for when asked", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true},
+			[]string{"go.mod:9: go 1.26 has no end-of-life date yet", "nothing declared in dir has an end-of-life date yet"}},
+		// A line that could not be read leaves the answer short of what the
+		// directory declares, which outranks anything that had no date.
+		{"everything was unreadable", resolve.Result{Unreadable: []decl.Unreadable{u}, Undated: []timeline.Undated{undated}}, nil, cliArgs{},
+			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version", "nothing in dir could be placed on the timeline"}},
 		{"the same complaint from several places", resolve.Result{Unreadable: []decl.Unreadable{u, {Source: decl.Source{File: "b", Line: 2}, Text: u.Text, Reason: u.Reason}}}, nil, cliArgs{},
-			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version (and 1 more)", "nothing could be placed on the timeline"}},
+			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version (and 1 more)", "nothing in dir could be placed on the timeline"}},
 		{"a window hid some", resolve.Result{Findings: []timeline.Finding{f, ahead}}, []timeline.Finding{f},
 			cliArgs{withinSet: true, withinText: "90d"},
 			[]string{"1 more expire further out than 90d; drop --within to see them"}},
@@ -168,6 +177,9 @@ func TestNotes(t *testing.T) {
 		{"untracked stays quiet", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{}, nil},
 		{"untracked when asked for", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{verbose: true},
 			[]string{"mise.toml:5: biome 2.5.13 is not tracked by endoflife.date"}},
+		// A dated declaration alongside an undated one is the whole answer,
+		// so the undated one says nothing.
+		{"undated stays quiet beside a row", resolve.Result{Findings: []timeline.Finding{f}, Undated: []timeline.Undated{undated}}, []timeline.Finding{f}, cliArgs{}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -337,10 +349,17 @@ func TestReport(t *testing.T) {
 			wantCode: exitPast,
 		},
 		{
-			name:     "a cycle with no announced date is said, not printed",
+			name:     "a cycle with no announced date is one line, not a complaint",
 			a:        cliArgs{dir: "."},
 			ds:       []decl.Decl{{Product: "nodejs", Version: "26.0.1", Source: at2(".nvmrc", 1)}},
-			wantErr:  []string{"has no announced end-of-life date", "nothing could be placed on the timeline"},
+			wantErr:  []string{"eolwhen: nothing declared in . has an end-of-life date yet\n"},
+			wantCode: exitNone,
+		},
+		{
+			name:     "and the line it was is named when asked",
+			a:        cliArgs{dir: ".", verbose: true},
+			ds:       []decl.Decl{{Product: "nodejs", Version: "26.0.1", Source: at2(".nvmrc", 1)}},
+			wantErr:  []string{".nvmrc:1: nodejs 26 has no end-of-life date yet"},
 			wantCode: exitNone,
 		},
 		// A tool list's line about software endoflife.date does not track is
@@ -405,7 +424,7 @@ func TestReportWithoutCatalog(t *testing.T) {
 	if code != exitNone || so.String() != "" {
 		t.Errorf("report = %q, %d; want no rows and exit %d", so.String(), code, exitNone)
 	}
-	for _, want := range []string{"ubuntu-latest names latest", "nothing could be placed on the timeline"} {
+	for _, want := range []string{"ubuntu-latest names latest", "nothing in . could be placed on the timeline"} {
 		if !strings.Contains(se.String(), want) {
 			t.Errorf("stderr = %q; want it to contain %q", se.String(), want)
 		}
@@ -471,6 +490,18 @@ func TestReportJSON(t *testing.T) {
 		t.Errorf("stderr = %q; want empty", se.String())
 	}
 	for _, want := range []string{`"directory": "some/dir"`, `"cycle": "2.7"`, `"text": "lts/iron"`} {
+		if !strings.Contains(so.String(), want) {
+			t.Errorf("stdout is missing %s:\n%s", want, so.String())
+		}
+	}
+	// The declarations with no date to place are the document's two
+	// --verbose lists, the same ones stderr keeps quiet about.
+	so.Reset()
+	ds = append(ds,
+		decl.Decl{Product: "nodejs", Version: "26.0.1", Source: at2(".nvmrc", 1)},
+		decl.Decl{Product: "jq", Version: "1.8.1", Source: at2("mise.toml", 3)})
+	report(cliArgs{dir: "some/dir", asJSON: true, verbose: true}, testCatalog(t), ds, us, now, &so, &se)
+	for _, want := range []string{`"cycle": "26"`, `"source": "mise.toml:3"`} {
 		if !strings.Contains(so.String(), want) {
 			t.Errorf("stdout is missing %s:\n%s", want, so.String())
 		}
