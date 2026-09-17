@@ -145,3 +145,83 @@ func TestBefore(t *testing.T) {
 		}
 	}
 }
+
+func TestSole(t *testing.T) {
+	rails := []string{"8.1", "8.0", "7.2", "7.1", "7.0", "6.1", "6.0", "5.2"}
+	django := []string{"5.2", "5.1", "5.0", "4.2", "4.1", "4.0"}
+	angular := []string{"22", "21", "20", "19", "18", "17"}
+	runners := []string{"ubuntu-24.04", "macos-15"}
+
+	tests := []struct {
+		name   string
+		lo, hi string
+		cycles []string
+		want   string
+		ok     bool
+	}{
+		// Caught: the whole range sits inside one cycle, so the cycle is
+		// known even though the version is not.
+		{"pessimistic to the patch", "6.1.0", "6.2", rails, "6.1", true},
+		{"pessimistic to the minor", "6.1", "7", rails, "6.1", true},
+		{"one version", "6.1.7.6", "6.1.7.7", rails, "6.1", true},
+		{"caret on major cycles", "17.0.0", "18", angular, "17", true},
+		{"compatible release on minor cycles", "4.2", "4.3", django, "4.2", true},
+		{"lower bound inside the cycle", "6.1.4", "6.2", rails, "6.1", true},
+
+		// Not caught: the range spans more than one cycle, and which one
+		// gets installed is a resolver's answer rather than this one's.
+		{"a whole major line", "6", "7", rails, "", false},
+		{"caret over minor cycles", "5.0.0", "6", django, "", false},
+		{"every cycle", "0", "99", angular, "", false},
+
+		// Undecidable: no cycle is reached at all, or the bounds are not
+		// versions to compare.
+		{"below every cycle", "3.0", "3.1", rails, "", false},
+		{"above every cycle", "9.0", "10", rails, "", false},
+		{"cycles named with words", "15", "16", runners, "", false},
+		{"no cycles", "6.1.0", "6.2", nil, "", false},
+		{"empty lower bound", "", "6.2", rails, "", false},
+		{"empty upper bound", "6.1.0", "", rails, "", false},
+		{"bound is a word", "latest", "6.2", rails, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := Sole(tt.lo, tt.hi, tt.cycles)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("Sole(%q, %q) = %q, %v; want %q, %v", tt.lo, tt.hi, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestLower(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		// Caught: the shorter bound is read as if padded with zeros, which
+		// is what a bound means.
+		{"lower major", "6.1", "7.0", true},
+		{"lower minor", "6.1", "6.2", true},
+		{"shorter against its own line", "6.1", "6.1.1", true},
+		{"6.10 is above 6.9", "6.9", "6.10", true},
+
+		// Not caught: equal bounds, and a bound that merely runs out.
+		{"the same", "6.1", "6.1", false},
+		{"the same padded", "6.1", "6.1.0", false},
+		{"higher", "7.0", "6.1", false},
+
+		// Undecidable: a bound that is not a version is below nothing.
+		{"a word", "latest", "6.1", false},
+		{"a word on the right", "6.1", "latest", false},
+		{"empty", "", "6.1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Lower(tt.a, tt.b); got != tt.want {
+				t.Errorf("Lower(%q, %q) = %v; want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}

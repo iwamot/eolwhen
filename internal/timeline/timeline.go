@@ -77,10 +77,7 @@ func Sort(fs []Finding) {
 		if fs[i].What() != fs[j].What() {
 			return fs[i].What() < fs[j].What()
 		}
-		if fs[i].Source.File != fs[j].Source.File {
-			return fs[i].Source.File < fs[j].Source.File
-		}
-		return fs[i].Source.Line < fs[j].Source.Line
+		return fs[i].Source.Before(fs[j].Source)
 	})
 }
 

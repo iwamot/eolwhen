@@ -3,6 +3,8 @@
 package resolve
 
 import (
+	"sort"
+
 	"github.com/iwamot/eolwhen/internal/catalog"
 	"github.com/iwamot/eolwhen/internal/cycle"
 	"github.com/iwamot/eolwhen/internal/decl"
@@ -56,15 +58,20 @@ type Result struct {
 // version is not one it ever had, so the line itself is what to go and look
 // at.
 //
-// The lines the extractors could not read come first in the result: they
-// were found earlier in the file than anything resolution had an opinion
-// about. With no declarations and no unreadable line that names a product,
-// the catalog is never consulted, so it may be nil.
+// Everything set aside is ordered by where it was found, so --verbose reads
+// down the directory rather than in the order the two passes happened to
+// gather it. With no declarations and no unreadable line that names a
+// product, the catalog is never consulted, so it may be nil.
 func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 	var r Result
 	for _, u := range us {
-		if u.Product != "" && !tracked(c, u.Product) {
-			r.Untracked = append(r.Untracked, decl.Decl{Product: u.Product, Version: u.Text, Source: u.Source})
+		if u.Product != "" && !tracked(c, u.Ecosystem, u.Product) {
+			r.Untracked = append(r.Untracked, decl.Decl{
+				Ecosystem: u.Ecosystem,
+				Product:   u.Product,
+				Version:   u.Text,
+				Source:    u.Source,
+			})
 			continue
 		}
 		r.add(u)
@@ -74,29 +81,31 @@ func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 			r.codename(c, d)
 			continue
 		}
-		p, ok := product(c, d.Product)
+		p, ok := product(c, d.Ecosystem, d.Product)
 		if !ok {
 			r.Untracked = append(r.Untracked, d)
 			continue
 		}
-		name, ok := match(p, d.Version)
+		name, ok := reach(p, d)
 		if !ok {
-			if cycle, release, older := predating(p, d.Version); older {
+			if cycle, release, older := predating(p, lowest(d)); older {
 				r.place(p.Name, cycle, release, d.Source)
 				continue
 			}
-			reason, moving := unmatched(p, d.Version)
+			reason, moving := unmatched(p, d)
 			r.add(decl.Unreadable{
-				Source:  d.Source,
-				Product: p.Name,
-				Text:    d.Version,
-				Reason:  reason,
-				Moving:  moving,
+				Source:    d.Source,
+				Ecosystem: d.Ecosystem,
+				Product:   p.Name,
+				Text:      d.Version,
+				Reason:    reason,
+				Moving:    moving,
 			})
 			continue
 		}
 		r.place(p.Name, name, p.Release(name), d.Source)
 	}
+	r.order()
 	return r
 }
 
@@ -111,17 +120,49 @@ func (r *Result) add(u decl.Unreadable) {
 	r.Unreadable = append(r.Unreadable, u)
 }
 
-func tracked(c *catalog.Catalog, name string) bool {
-	_, ok := product(c, name)
+// order puts the lines with no row on them in the order they sit in the
+// directory. They are gathered in two passes — what an extractor could not
+// read, and then what resolution had an opinion about — so a Gemfile's line
+// 4 would otherwise be printed before its line 3. A reader following
+// --verbose down a file should not have to jump back. Findings are ordered
+// by their date instead, which the timeline does.
+func (r *Result) order() {
+	bySource(r.Unreadable, func(u decl.Unreadable) decl.Source { return u.Source })
+	bySource(r.Moving, func(u decl.Unreadable) decl.Source { return u.Source })
+	bySource(r.Untracked, func(d decl.Decl) decl.Source { return d.Source })
+	bySource(r.Undated, func(u timeline.Undated) decl.Source { return u.Source })
+}
+
+// bySource orders a list of set-aside lines by where each one was found.
+// Each kind keeps that in a field of its own, so the caller says which.
+func bySource[T any](xs []T, at func(T) decl.Source) {
+	sort.SliceStable(xs, func(i, j int) bool { return at(xs[i]).Before(at(xs[j])) })
+}
+
+func tracked(c *catalog.Catalog, ecosystem, name string) bool {
+	_, ok := product(c, ecosystem, name)
 	return ok
 }
 
-// product finds what a declaration is about: a name the catalog answers to,
-// or the Docker Hub repository a product publishes under. The second is what
-// reaches software outside the official library — opensearchproject/opensearch
-// is OpenSearch because endoflife.date says so — and it costs nothing
-// elsewhere, since no other kind of name is written with a slash.
-func product(c *catalog.Catalog, name string) (catalog.Product, bool) {
+// product finds what a declaration is about.
+//
+// A package name reaches a product through the purls upstream publishes for
+// that ecosystem and through nothing else. Names and aliases are the wrong
+// table for it: `mongo` is an alias of MongoDB and `pg` of PostgreSQL, and
+// both are also the names of the drivers a manifest depends on, which are
+// different software with different versions. A registry anyone can publish
+// to is not a namespace to read names out of, so only upstream's own answer
+// counts.
+//
+// Anything else is a name the catalog answers to, or the Docker Hub
+// repository a product publishes under. The second is what reaches software
+// outside the official library — opensearchproject/opensearch is OpenSearch
+// because endoflife.date says so — and it costs nothing elsewhere, since no
+// other kind of name is written with a slash.
+func product(c *catalog.Catalog, ecosystem, name string) (catalog.Product, bool) {
+	if ecosystem != "" {
+		return c.ByPackage(ecosystem, name)
+	}
 	if p, ok := c.Lookup(name); ok {
 		return p, true
 	}
@@ -191,8 +232,13 @@ func (r *Result) place(product, cycle string, release catalog.Release, src decl.
 }
 
 // unmatched says why a version reached no cycle, and whether the line was
-// following the newest release rather than naming one. Three things are true
+// following the newest release rather than naming one. Four things are true
 // at this point and each leaves the reader somewhere different.
+//
+// A range that sits inside no one cycle names no version to date. Which
+// version a manifest's range became is a resolver's answer, written in the
+// lockfile beside it, so the line follows whatever was resolved and there is
+// nothing here to place.
 //
 // A version that starts with a letter, of a product that numbers its cycles,
 // named a variant or an alias of some version rather than a version: alpine
@@ -208,8 +254,11 @@ func (r *Result) place(product, cycle string, release catalog.Release, src decl.
 // Anything else is a version the catalog has never had, and that line is one
 // to go and look at. A version older than every cycle it tracks is not
 // among them: predating has already placed that one on the timeline.
-func unmatched(p catalog.Product, v string) (reason string, moving bool) {
+func unmatched(p catalog.Product, d decl.Decl) (reason string, moving bool) {
+	v := d.Version
 	switch {
+	case d.Below != "":
+		return "names a range of versions rather than one, so the lockfile decides which one", true
 	case p.Numbered() && (v == "" || v[0] < '0' || v[0] > '9'):
 		return "names a variant or an alias, not a version", true
 	case cycle.Covering(v, p.Cycles()) > 0:
@@ -231,4 +280,24 @@ func match(p catalog.Product, v string) (string, bool) {
 		return r.Name, true
 	}
 	return "", false
+}
+
+// reach finds the cycle a declaration lands in: the one its version belongs
+// to, or, when the file pinned a range instead, the one cycle the whole
+// range sits inside. A range spanning two cycles reaches neither, because
+// which of them gets installed is a resolver's answer and not this one's.
+func reach(p catalog.Product, d decl.Decl) (string, bool) {
+	if d.Below != "" {
+		return cycle.Sole(d.From, d.Below, p.Cycles())
+	}
+	return match(p, d.Version)
+}
+
+// lowest is the version a declaration starts at, which is the whole of it
+// unless it named a range.
+func lowest(d decl.Decl) string {
+	if d.From != "" {
+		return d.From
+	}
+	return d.Version
 }

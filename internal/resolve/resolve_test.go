@@ -243,9 +243,9 @@ func TestAllBaseCodename(t *testing.T) {
 // TestAllSortsUnreadable: a line an extractor could not read is still a line
 // about some software, and the same rule applies to it. One about software
 // the catalog does not track is set aside, whatever its version looked like;
-// one about tracked software is carried through ahead of anything resolution
-// had to say; one that names no software apart from its text is carried
-// through as it is.
+// one about tracked software is carried through; one that names no software
+// apart from its text is carried through as it is. What is carried through
+// reads in the order it sits in the directory, whichever pass gathered it.
 func TestAllSortsUnreadable(t *testing.T) {
 	untracked := decl.Unreadable{Source: src("mise.toml"), Product: "jq", Text: "latest", Reason: "names a moving target, not a version"}
 	tracked := decl.Unreadable{Source: src("mise.toml"), Product: "node", Text: "latest", Reason: "names a moving target, not a version"}
@@ -253,8 +253,8 @@ func TestAllSortsUnreadable(t *testing.T) {
 	r := All(load(t),
 		[]decl.Decl{{Product: "python", Version: "4.0.1", Source: src("x")}},
 		[]decl.Unreadable{untracked, tracked, label})
-	if len(r.Unreadable) != 3 || r.Unreadable[0] != tracked || r.Unreadable[1] != label || r.Unreadable[2].Product != "python" {
-		t.Errorf("Unreadable = %+v; want node latest, ubuntu-latest, then python 4.0.1", r.Unreadable)
+	if len(r.Unreadable) != 3 || r.Unreadable[0] != label || r.Unreadable[1] != tracked || r.Unreadable[2].Product != "python" {
+		t.Errorf("Unreadable = %+v; want ubuntu-latest, node latest, then python 4.0.1", r.Unreadable)
 	}
 	if len(r.Untracked) != 1 || r.Untracked[0] != (decl.Decl{Product: "jq", Version: "latest", Source: src("mise.toml")}) {
 		t.Errorf("Untracked = %+v; want jq latest alone", r.Untracked)
@@ -333,5 +333,170 @@ func TestAllPredatingNeedsADate(t *testing.T) {
 	}
 	if len(r.Unreadable) != 2 {
 		t.Fatalf("Unreadable = %+v; want both reported", r.Unreadable)
+	}
+}
+
+// pkgDoc is a catalog whose products carry package identifiers, which is how
+// a manifest line reaches one. rails is named as a gem; postgresql is not,
+// though it answers to pg as an alias, which is exactly the answer a Gemfile
+// must not get.
+const pkgDoc = `{"result":[
+  {"name":"rails","aliases":["ruby-on-rails"],"identifiers":[
+    {"type":"purl","id":"pkg:gem/rails"}
+  ],"releases":[
+    {"name":"7.0","eolFrom":"2025-04-01"},
+    {"name":"6.1","eolFrom":"2024-10-01"},
+    {"name":"6.0","eolFrom":"2023-06-01"},
+    {"name":"4.2","eolFrom":"2017-04-27"}
+  ]},
+  {"name":"postgresql","aliases":["pg"],"identifiers":[
+    {"type":"purl","id":"pkg:docker/library/postgres"}
+  ],"releases":[{"name":"13","eolFrom":"2025-11-13"}]}
+]}`
+
+func loadPkg(t *testing.T) *catalog.Catalog {
+	t.Helper()
+	c, err := catalog.Decode([]byte(pkgDoc))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	return c
+}
+
+func gem(name, text, from, below string) decl.Decl {
+	return decl.Decl{
+		Ecosystem: "gem",
+		Product:   name,
+		Version:   text,
+		From:      from,
+		Below:     below,
+		Source:    decl.Source{File: "Gemfile", Line: 1},
+	}
+}
+
+// TestAllPlacesARange covers a manifest that pinned a range rather than a
+// version. A row is about a cycle, so a range is an answer when the whole of
+// it sits inside one, and none when it does not.
+func TestAllPlacesARange(t *testing.T) {
+	c := loadPkg(t)
+	r := All(c, []decl.Decl{gem("rails", "~> 6.1.0", "6.1.0", "6.2")}, nil)
+	if len(r.Findings) != 1 {
+		t.Fatalf("Findings = %+v; want 1", r.Findings)
+	}
+	if r.Findings[0].Product != "rails" || r.Findings[0].Cycle != "6.1" {
+		t.Errorf("Findings[0] = %+v; want rails 6.1", r.Findings[0])
+	}
+	if got := r.Findings[0].EOL.Format(time.DateOnly); got != "2024-10-01" {
+		t.Errorf("EOL = %s; want 2024-10-01", got)
+	}
+}
+
+func TestAllSetsAsideARangeOverTwoCycles(t *testing.T) {
+	c := loadPkg(t)
+	// `~> 6` admits both 6.0 and 6.1, and which one was installed is in the
+	// lockfile rather than here.
+	r := All(c, []decl.Decl{gem("rails", "~> 6", "6", "7")}, nil)
+	if len(r.Findings) != 0 || len(r.Unreadable) != 0 {
+		t.Fatalf("Findings = %+v, Unreadable = %+v; want neither", r.Findings, r.Unreadable)
+	}
+	if len(r.Moving) != 1 {
+		t.Fatalf("Moving = %+v; want 1", r.Moving)
+	}
+	if r.Moving[0].Reason != "names a range of versions rather than one, so the lockfile decides which one" {
+		t.Errorf("Reason = %q", r.Moving[0].Reason)
+	}
+}
+
+// TestAllPlacesARangeBelowEveryCycle covers the range whose whole of it
+// predates the catalog: the lowest version it admits is what dates it, the
+// same as a version written on its own.
+func TestAllPlacesARangeBelowEveryCycle(t *testing.T) {
+	c := loadPkg(t)
+	r := All(c, []decl.Decl{gem("rails", "~> 3.2.0", "3.2.0", "3.3")}, nil)
+	if len(r.Findings) != 1 {
+		t.Fatalf("Findings = %+v; want 1", r.Findings)
+	}
+	if r.Findings[0].Cycle != "<4.2" {
+		t.Errorf("Cycle = %q; want <4.2", r.Findings[0].Cycle)
+	}
+}
+
+// TestAllReadsAPackageNameThroughPurlsAlone is the whole reason a package
+// line carries its ecosystem. The gem pg is the PostgreSQL driver, and the
+// database answering to pg as an alias would date a Gemfile line by the
+// wrong software's calendar.
+func TestAllReadsAPackageNameThroughPurlsAlone(t *testing.T) {
+	c := loadPkg(t)
+	r := All(c, []decl.Decl{
+		gem("pg", "~> 1.1.0", "1.1.0", "1.2"),
+		gem("ruby-on-rails", "~> 6.1.0", "6.1.0", "6.2"),
+	}, nil)
+	if len(r.Findings) != 0 || len(r.Unreadable) != 0 {
+		t.Fatalf("Findings = %+v, Unreadable = %+v; want neither", r.Findings, r.Unreadable)
+	}
+	if len(r.Untracked) != 2 {
+		t.Fatalf("Untracked = %+v; want 2", r.Untracked)
+	}
+}
+
+// TestAllKeepsAPackageOutOfTheNameTable is the same rule from the other
+// side: a gem the catalog does not publish must not reach a product some
+// other kind of declaration answers to under that name.
+func TestAllKeepsAPackageOutOfTheNameTable(t *testing.T) {
+	c := loadPkg(t)
+	r := All(c, nil, []decl.Unreadable{
+		{Source: decl.Source{File: "Gemfile", Line: 2}, Ecosystem: "gem", Product: "pg", Text: ">= 1.1", Moving: true},
+	})
+	if len(r.Moving) != 0 {
+		t.Fatalf("Moving = %+v; want none", r.Moving)
+	}
+	if len(r.Untracked) != 1 || r.Untracked[0].Product != "pg" {
+		t.Fatalf("Untracked = %+v; want pg", r.Untracked)
+	}
+}
+
+// TestAllOrdersWhatItSetsAside covers the two passes meeting in one file.
+// A Gemfile's untracked gems arrive from both — the ones with no usable
+// requirement from the extractor, the rest from resolution — and a reader
+// following --verbose down the file should not have to jump back.
+func TestAllOrdersWhatItSetsAside(t *testing.T) {
+	at := func(line int) decl.Source { return decl.Source{File: "Gemfile", Line: line} }
+	r := All(loadPkg(t),
+		[]decl.Decl{
+			{Ecosystem: "gem", Product: "puma", Version: "~> 5.0", From: "5.0", Below: "6", Source: at(3)},
+			{Ecosystem: "gem", Product: "redis", Version: "~> 4.0", From: "4.0", Below: "5", Source: at(5)},
+		},
+		[]decl.Unreadable{
+			{Source: at(2), Ecosystem: "gem", Product: "sidekiq", Moving: true},
+			{Source: at(4), Ecosystem: "gem", Product: "devise", Text: ">= 4.7", Moving: true},
+		})
+	var lines []int
+	for _, d := range r.Untracked {
+		lines = append(lines, d.Source.Line)
+	}
+	if len(lines) != 4 || lines[0] != 2 || lines[1] != 3 || lines[2] != 4 || lines[3] != 5 {
+		t.Errorf("Untracked lines = %v; want 2, 3, 4, 5", lines)
+	}
+}
+
+// TestAllOrdersTheQuietLists is the same rule for the other two lists a
+// --verbose run prints: a cycle with no date yet, and a line following the
+// newest release on purpose.
+func TestAllOrdersTheQuietLists(t *testing.T) {
+	at := func(line int) decl.Source { return decl.Source{File: "compose.yml", Line: line} }
+	r := All(load(t),
+		[]decl.Decl{
+			{Product: "redis", Version: "8.0", Source: at(5)},
+			{Product: "nodejs", Version: "26", Source: at(2)},
+		},
+		[]decl.Unreadable{
+			{Source: at(4), Product: "python", Text: "latest", Moving: true},
+			{Source: at(1), Product: "redis", Text: "latest", Moving: true},
+		})
+	if len(r.Undated) != 2 || r.Undated[0].Source.Line != 2 || r.Undated[1].Source.Line != 5 {
+		t.Errorf("Undated = %+v; want lines 2 then 5", r.Undated)
+	}
+	if len(r.Moving) != 2 || r.Moving[0].Source.Line != 1 || r.Moving[1].Source.Line != 4 {
+		t.Errorf("Moving = %+v; want lines 1 then 4", r.Moving)
 	}
 }

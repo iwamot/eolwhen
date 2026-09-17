@@ -10,6 +10,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -71,25 +72,43 @@ type Product struct {
 	Releases    []Release    `json:"releases"`
 }
 
-// images lists the Docker Hub repositories this product publishes, as its
-// purls of type docker name them. A purl may carry a version or qualifiers
-// after the name, and neither is part of the repository.
-func (p Product) images() []string {
-	var out []string
+// pkg is a name this product is published under somewhere else: the
+// ecosystem a purl names, and the name within it. pkg:gem/rails says the
+// product rails is the gem called rails, and pkg:docker/library/python says
+// which image is Python.
+type pkg struct {
+	ecosystem string
+	name      string
+}
+
+// packages lists every name this product is published under, as its purls
+// name them. A purl may carry a version or qualifiers after the name, and
+// neither is part of the name.
+//
+// The name is percent-decoded, because a purl escapes what would otherwise
+// be punctuation of its own: @angular/core is pkg:npm/%40angular/core.
+func (p Product) packages() []pkg {
+	var out []pkg
 	for _, id := range p.Identifiers {
 		if id.Type != "purl" {
 			continue
 		}
-		name, ok := strings.CutPrefix(id.ID, "pkg:docker/")
+		rest, ok := strings.CutPrefix(id.ID, "pkg:")
+		if !ok {
+			continue
+		}
+		ecosystem, name, ok := strings.Cut(rest, "/")
 		if !ok {
 			continue
 		}
 		name, _, _ = strings.Cut(name, "@")
 		name, _, _ = strings.Cut(name, "?")
 		name, _, _ = strings.Cut(name, "#")
-		if name != "" {
-			out = append(out, strings.ToLower(name))
+		decoded, err := url.PathUnescape(name)
+		if err != nil || ecosystem == "" || decoded == "" {
+			continue
 		}
+		out = append(out, pkg{strings.ToLower(ecosystem), strings.ToLower(decoded)})
 	}
 	return out
 }
@@ -137,7 +156,7 @@ type Catalog struct {
 	products   []Product
 	byName     map[string]int
 	byCodename map[string]codename
-	byImage    map[string]int
+	byPackage  map[string]int
 }
 
 // codename is where a cycle's codename leads: the product and the release,
@@ -166,7 +185,7 @@ func Decode(data []byte) (*Catalog, error) {
 		products:   doc.Result,
 		byName:     make(map[string]int, len(doc.Result)*2),
 		byCodename: map[string]codename{},
-		byImage:    map[string]int{},
+		byPackage:  map[string]int{},
 	}
 	// Aliases go in first and names second, so a product's own name always
 	// wins over another product's alias for the same string.
@@ -182,14 +201,17 @@ func Decode(data []byte) (*Catalog, error) {
 			c.byName[strings.ToLower(p.Name)] = i
 		}
 	}
-	// An image is indexed under the repository each of its purls names. The
-	// first product to claim a repository keeps it: upstream owns these
-	// strings, so two products naming one image is its own bug and not an
+	// A product is indexed under every name a purl publishes for it, kept
+	// apart by ecosystem: the gem called rails and an npm package of the
+	// same name would be different declarations about different software.
+	// The first product to claim a name keeps it: upstream owns these
+	// strings, so two products naming one package is its own bug and not an
 	// ambiguity to resolve here.
 	for i, p := range doc.Result {
-		for _, image := range p.images() {
-			if _, seen := c.byImage[image]; !seen {
-				c.byImage[image] = i
+		for _, pk := range p.packages() {
+			key := pk.ecosystem + "/" + pk.name
+			if _, seen := c.byPackage[key]; !seen {
+				c.byPackage[key] = i
 			}
 		}
 	}
@@ -238,21 +260,34 @@ func (c *Catalog) Lookup(name string) (Product, bool) {
 	return c.products[i], true
 }
 
-// ByImage finds the product a Docker Hub repository holds, as endoflife.date
-// itself names it: opensearchproject/opensearch is OpenSearch because
-// upstream publishes pkg:docker/opensearchproject/opensearch for it, not
-// because the name reads that way.
+// ByPackage finds the product published under a name in one ecosystem, as
+// endoflife.date itself names it: the gem rails is Ruby on Rails because
+// upstream publishes pkg:gem/rails for it, not because the name reads that
+// way.
 //
-// This is the whole of what is known about a name outside the official
-// library. An image nobody published a purl for is one whose contents are
-// not knowable from the line, and that is a declaration of software the
-// catalog does not track rather than a line to go and look at.
-func (c *Catalog) ByImage(name string) (Product, bool) {
-	i, ok := c.byImage[strings.ToLower(name)]
+// This is the whole of what is known about a package name, and the
+// ecosystem is half of the question: the gem pg is the PostgreSQL driver
+// and not PostgreSQL, and nothing outside this table would say so. A name
+// nobody published a purl for is a declaration of software the catalog does
+// not track, not a line to go and look at.
+func (c *Catalog) ByPackage(ecosystem, name string) (Product, bool) {
+	i, ok := c.byPackage[strings.ToLower(ecosystem)+"/"+strings.ToLower(name)]
 	if !ok {
 		return Product{}, false
 	}
 	return c.products[i], true
+}
+
+// ByImage finds the product a Docker Hub repository holds, which is the same
+// question asked of the ecosystem an image comes from:
+// opensearchproject/opensearch is OpenSearch because upstream publishes
+// pkg:docker/opensearchproject/opensearch for it.
+//
+// This is the whole of what is known about a name outside the official
+// library. An image nobody published a purl for is one whose contents are
+// not knowable from the line.
+func (c *Catalog) ByImage(name string) (Product, bool) {
+	return c.ByPackage("docker", name)
 }
 
 // Len is the number of products, for the note that says how many were read.

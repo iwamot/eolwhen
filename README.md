@@ -25,7 +25,7 @@ Nothing tells you. Renovate and Dependabot would, but a neglected repository is 
 
 `eolwhen` answers the question from the outside, in one command, with no setup and no credentials: point it at a checkout and it reads what is written there.
 
-It reads declarations, which is the gap. Scanners that resolve dependency manifests — [xeol](https://github.com/xeol-io/xeol), [uzomuzo](https://github.com/future-architect/uzomuzo) — answer a neighbouring question well, and they are worth running alongside this. What they do not read is the line that says which Ruby the thing runs on.
+It reads declarations, which is the gap. Scanners that resolve dependency manifests — [xeol](https://github.com/xeol-io/xeol), [uzomuzo](https://github.com/future-architect/uzomuzo) — answer a neighbouring question well, and they are worth running alongside this. What they do not read is the line that says which Ruby the thing runs on. A manifest is read here for the same kind of line and no other: the framework the application sits on, not the libraries around it.
 
 ## Setup
 
@@ -52,9 +52,10 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `mise.toml`, `.mise.toml`, `.tool-versions` | each tool listed under a bare name |
 | `Dockerfile`, `Dockerfile.*` | whatever each `FROM` names — an official image, or any image endoflife.date publishes a purl for — and the distribution its tag was built on |
 | `compose*.yml`, `docker-compose*.yml` (and `.yaml`) | the same, for each service's `image:`, unless the service has a `build:` and the image is what it builds |
+| `Gemfile`, `gems.rb` | each `gem` whose name endoflife.date publishes as a gem — the framework the application sits on, not the libraries around it |
 | `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
-A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A key carrying a backend — `aqua:`, `go:`, `npm:` — names a package in a registry anyone can publish to, so it is not read.
+A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A key carrying a backend — `aqua:`, `go:`, `npm:` — names a package rather than a tool, and a package is read where the file it sits in fixes the registry, as a `Gemfile` does. A backend written as a prefix on a key is not read that way yet.
 
 The directory is searched to the bottom, so a monorepo's `packages/web/.nvmrc` and a `docker/Dockerfile` are both found. Directories holding somebody else's code — `node_modules`, `vendor`, `third_party`, `.venv`, `.git` and the like — are skipped, because a `.nvmrc` inside a dependency is its author's declaration and not this directory's.
 
@@ -105,6 +106,21 @@ $ eolwhen
 ```
 
 A matrix belongs to its job, so one job's `os:` says nothing about another's. `include:` holds whole combinations and may name a version the list does not, so what it says under a key is read as another value of it; `exclude:` takes combinations away and declares nothing. A matrix built by an expression — `fromJSON` of another job's output — lists nothing to read, and an expression doing more than naming one key is left alone: what it works out to is the workflow's to decide at run time.
+
+### Which gems are a declaration
+
+A `Gemfile` is mostly libraries, and a library rarely has an end of life. What it also holds is the framework the application sits on, and a framework publishes a support calendar for the same reason a distribution does — Rails 6.1 stopped getting security fixes on 2024-10-01, and an application still asking for it is in the same position as one still asking for Debian 10.
+
+Which of the two a line names is upstream's answer rather than a guess made here. endoflife.date publishes the gem name for the products that have one, so `rails` is Ruby on Rails on its word, and every other gem is software it does not track and is passed over in silence. That is what keeps `gem "pg"` from reading as PostgreSQL: the database answers to `pg` as an alias, but the gem is the driver, which is different software on a different calendar, and a registry anyone can publish to is not a namespace to read names out of.
+
+```
+$ eolwhen
+ -716d  2024-10-01  rails 6.1  Gemfile:3
+```
+
+A requirement usually pins a range rather than a version, and a range is still an answer when the whole of it sits inside one cycle, because a row is about a cycle. Every version `~> 6.1.0` allows is Rails 6.1, so the line is dated. `~> 6` is not: it admits both 6.0 and 6.1, and which one was installed is written in the `Gemfile.lock`, which this does not read. A gem with no requirement at all is the same case. Those are set aside without a word, and `--verbose` names them.
+
+A version with a letter in it — `7.1.0.rc1` — is passed over too. Where a pre-release falls against a release is Bundler's rule rather than a number's, and getting it wrong would date a line by a cycle it is not in.
 
 ## Using it
 
@@ -191,7 +207,7 @@ To cover several directories, loop over them in the shell. `eolwhen` reads one.
 `eolwhen --instructions` prints the paragraph to drop into `CLAUDE.md`, `AGENTS.md`, or whichever file your agent reads:
 
 ```markdown
-To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.
+To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.
 ```
 
 ## Reference
@@ -215,10 +231,17 @@ loop over them in the shell.
 Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
-image: of any Compose service, and the runs-on labels and setup-* versions
-in .github/workflows, then matched against endoflife.date. DIR is searched
-to the bottom, skipping directories that hold somebody else's code:
-node_modules, vendor, .venv and the like.
+image: of any Compose service, the gem lines of any Gemfile, and the
+runs-on labels and setup-* versions in .github/workflows, then matched
+against endoflife.date. DIR is searched to the bottom, skipping directories
+that hold somebody else's code: node_modules, vendor, .venv and the like.
+
+A gem reaches a product only through the package names endoflife.date
+publishes, so rails is Ruby on Rails on upstream's word while pg is the
+PostgreSQL driver and reaches nothing. A requirement that pins a range
+rather than a version still names a cycle when the whole range sits inside
+one: ~> 6.1.0 is Rails 6.1. One that does not, or a gem left to the
+lockfile, has no one version to date and is set aside.
 
 An image outside the Docker official library is read through the Docker Hub
 repository endoflife.date publishes for each product, so
@@ -292,7 +315,9 @@ Exit codes:
 
 ## Out of scope
 
-- **Package and library versions.** Reaching them means matching a package name against a product name, and in a registry anyone can publish to, `mongodb` is as likely to be the driver as the server. That layer belongs to [xeol](https://github.com/xeol-io/xeol) and [uzomuzo](https://github.com/future-architect/uzomuzo). Only the `pkg:docker/...` purls are read here, because an image is what will be running; the npm and PyPI ones name a library inside it, which is that layer's question.
+- **Libraries.** A manifest is mostly libraries, and a library rarely has an end of life: it is released until it is not, and "old" is not "unsupported" when nobody promised support in the first place. Whether a library has been abandoned is a real question with no date behind it, and it belongs to [uzomuzo](https://github.com/future-architect/uzomuzo) and [xeol](https://github.com/xeol-io/xeol). What is read here is the other half of a manifest — the framework the application sits on, which publishes a support calendar for the same reason a distribution does. The two are told apart by the package names endoflife.date publishes and by nothing else, so the line is drawn by upstream rather than guessed at here.
+- **Manifests other than a Gemfile.** `package.json`, `composer.json` and `pyproject.toml` declare frameworks the same way, and each needs its own reading of how a requirement pins a version. Later.
+- **Lockfiles.** A manifest that pins no single version has its answer in the lockfile beside it, which is not read: `Gemfile.lock` says which Rails was resolved where the `Gemfile` only said `>= 6.0`. Those lines are set aside rather than guessed at, and `--verbose` names them.
 - **Vulnerabilities.** They carry no date, so they do not belong on a timeline, and `osv-scanner`, `trivy`, and `grype` already read a directory for them. The two answers meet in one place worth saying out loud: once a runtime is past its end of life, the vulnerabilities found from then on are never fixed.
 - **Deprecated GitHub Actions.** `actions/checkout@v2` has no machine-readable source to track, and unlike an expired base image it does not fail quietly — the workflow says so the next time it runs.
 - **Terraform and cloud service versions.** The most valuable layer by far, but the one where the value is usually `var.eks_version` rather than a literal, which only Terraform itself can resolve. Later.
