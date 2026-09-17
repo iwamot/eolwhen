@@ -133,21 +133,25 @@ func read(name, v string, src decl.Source) (decl.Decl, decl.Unreadable, bool) {
 	if version == "" || version[0] < '0' || version[0] > '9' {
 		// The tool is named apart from the version, so that whether the
 		// catalog tracks it can still decide if this line is worth a word.
-		return decl.Decl{}, decl.Unreadable{Source: src, Product: name, Text: v, Reason: reason(v)}, false
+		r, moving := reason(v)
+		return decl.Decl{}, decl.Unreadable{Source: src, Product: name, Text: v, Reason: r, Moving: moving}, false
 	}
 	return decl.Decl{Product: name, Version: version, Source: src}, decl.Unreadable{}, true
 }
 
-func reason(v string) string {
+// reason says why a version could not be used, and whether the line names no
+// fixed version by design: each of these but the last leaves the choice to
+// something other than the file, so there was never a date to place.
+func reason(v string) (string, bool) {
 	switch {
 	case v == "latest", v == "lts", v == "stable", strings.HasPrefix(v, "lts-"):
-		return "names a moving target, not a version"
+		return "names a moving target, not a version", true
 	case v == "system":
-		return "defers to whatever is installed"
+		return "defers to whatever is installed", true
 	case strings.Contains(v, ":"):
-		return "leaves the version for mise to resolve"
+		return "leaves the version for mise to resolve", true
 	default:
-		return "is not a version"
+		return "is not a version", false
 	}
 }
 

@@ -25,14 +25,17 @@ func TestMatches(t *testing.T) {
 	}
 }
 
+// one is the image itself, which is the first declaration a FROM makes. A
+// tag naming the distribution it was built on adds more; what those are is
+// the image package's business, and TestExtractBase covers them here.
 func one(t *testing.T, body string) (decl.Decl, bool) {
 	t.Helper()
 	ds, us := Extract("Dockerfile", []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
-	if len(ds) != 1 {
-		t.Fatalf("declarations = %+v; want 1", ds)
+	if len(ds) == 0 {
+		t.Fatalf("declarations = %+v; want at least one", ds)
 	}
 	return ds[0], true
 }
@@ -86,16 +89,12 @@ func TestExtractReported(t *testing.T) {
 		body   string
 		reason string
 	}{
-		{"someone else's namespace", "FROM ghcr.io/acme/python:3.7\n",
-			"is not a Docker official image, so its contents are not known here"},
-		{"a Docker Hub user's image", "FROM acme/python:3.7\n",
-			"is not a Docker official image, so its contents are not known here"},
-		{"a private registry with a port", "FROM registry.corp:5000/base:1.2\n",
-			"is not a Docker official image, so its contents are not known here"},
 		{"pinned by digest", "FROM python@sha256:0000000000000000000000000000000000000000000000000000000000000000\n",
 			"is pinned by digest, which does not say which version it is"},
 		{"no tag", "FROM python\n", "names no tag, so it follows latest"},
 		{"latest", "FROM python:latest\n", "names latest, not a version"},
+		// A name no ARG declares is given from outside the file, so there is
+		// nothing here to read it as.
 		{"a build argument", "FROM python:${PYTHON_VERSION}\n", "takes its version from a variable"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -232,6 +231,115 @@ func TestExtractHeredocOnlyWhereOneCanBe(t *testing.T) {
 			}
 			if len(ds) != 2 || ds[0].Product != "python" || ds[1].Product != "alpine" {
 				t.Fatalf("declarations = %+v; want python then alpine", ds)
+			}
+		})
+	}
+}
+
+// TestExtractArgs: a FROM written in terms of a build argument is read as
+// the build with no --build-arg would resolve it, which is the build the
+// file describes. An ARG declared with no default is empty there, and that
+// is what makes a registry prefix meant to be filled in read as the official
+// library it falls back to.
+func TestExtractArgs(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		body    string
+		product string
+		version string
+	}{
+		{"a default", "ARG PYTHON=3.9\nFROM python:${PYTHON}\n", "python", "3.9"},
+		{"the bare spelling", "ARG PYTHON=3.9\nFROM python:$PYTHON\n", "python", "3.9"},
+		{"a quoted default", `ARG PYTHON="3.9"` + "\nFROM python:${PYTHON}\n", "python", "3.9"},
+		{"no default at all", "ARG REGISTRY\nFROM ${REGISTRY}python:3.9\n", "python", "3.9"},
+		{"an empty default", "ARG PREFIX=\nFROM ${PREFIX}python:3.9\n", "python", "3.9"},
+		{"a registry that is spelled out", "ARG PREFIX=docker.io/library/\nFROM ${PREFIX}python:3.9\n", "python", "3.9"},
+		{"two on one line", "ARG A=3 B=9\nFROM python:$A.$B\n", "python", "3.9"},
+		{"one written in terms of another", "ARG HOST=docker.io\nARG PREFIX=${HOST}/library/\nFROM ${PREFIX}python:3.9\n", "python", "3.9"},
+		{"the comment above it", "# syntax=docker/dockerfile:1\nARG PYTHON=3.9\nFROM python:${PYTHON}\n", "python", "3.9"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d, _ := one(t, tt.body)
+			if d.Product != tt.product || d.Version != tt.version {
+				t.Errorf("Extract = %s %s; want %s %s", d.Product, d.Version, tt.product, tt.version)
+			}
+		})
+	}
+}
+
+// TestExtractArgsAfterFirstFrom: only the arguments declared above the first
+// FROM are in scope for one, which is Docker's own rule; an ARG inside a
+// stage belongs to that stage's build and says nothing about the next FROM.
+func TestExtractArgsAfterFirstFrom(t *testing.T) {
+	ds, us := Extract("Dockerfile", []byte("FROM alpine:3.10\nARG TAG=3.12\nFROM python:${TAG}\n"))
+	if len(ds) != 1 || ds[0].Product != "alpine" {
+		t.Fatalf("declarations = %+v; want alpine alone", ds)
+	}
+	if len(us) != 1 || us[0].Reason != "takes its version from a variable" {
+		t.Fatalf("unreadable = %+v; want the second FROM reported", us)
+	}
+}
+
+// TestExtractBase: the distribution an image was built on is declared at the
+// same line as the image, which is what makes a supported Python on a Debian
+// nobody patches any more show up as the two declarations it is.
+func TestExtractBase(t *testing.T) {
+	ds, us := Extract("Dockerfile", []byte("ARG PREFIX=\nFROM ${PREFIX}python:3.11-bullseye\n"))
+	if len(us) != 0 {
+		t.Fatalf("unreadable = %+v; want none", us)
+	}
+	want := []decl.Decl{
+		{Product: "python", Version: "3.11", Source: decl.Source{File: "Dockerfile", Line: 2}},
+		{Version: "bullseye", Source: decl.Source{File: "Dockerfile", Line: 2}},
+	}
+	if len(ds) != len(want) {
+		t.Fatalf("declarations = %+v; want %+v", ds, want)
+	}
+	for i := range want {
+		if ds[i] != want[i] {
+			t.Errorf("[%d] = %+v; want %+v", i, ds[i], want[i])
+		}
+	}
+}
+
+// TestExtractOutsideTheLibrary: a name anyone may publish is handed on as
+// the repository it is, and the catalog decides whether endoflife.date
+// publishes that image for one of its products. Nothing here is guessed
+// from the name.
+func TestExtractOutsideTheLibrary(t *testing.T) {
+	for _, tt := range []struct{ name, body, product, version string }{
+		{"a Docker Hub user's image", "FROM opensearchproject/opensearch:1.3.0\n", "opensearchproject/opensearch", "1.3.0"},
+		{"another registry", "FROM ghcr.io/acme/python:3.7\n", "ghcr.io/acme/python", "3.7"},
+		{"a private registry with a port", "FROM registry.corp:5000/base:1.2\n", "registry.corp:5000/base", "1.2"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d, _ := one(t, tt.body)
+			if d.Product != tt.product || d.Version != tt.version {
+				t.Errorf("Extract = %s %s; want %s %s", d.Product, d.Version, tt.product, tt.version)
+			}
+		})
+	}
+}
+
+// TestExtractArgsLeftAlone: what is not a build argument is not substituted,
+// so a reference carrying one of these still reads as written and is
+// reported rather than turned into something nobody wrote.
+func TestExtractArgsLeftAlone(t *testing.T) {
+	for _, tt := range []struct{ name, body string }{
+		{"a dollar with no name after it", "ARG A=1\nFROM python:3.9$\n"},
+		{"a brace that is never closed", "ARG A=1\nFROM python:${A\n"},
+		{"a name that starts with a digit", "ARG A=1\nFROM python:${9A}\n"},
+		{"a modifier inside the braces", "ARG A=1\nFROM python:${A:-3.9}\n"},
+		{"an ARG with nothing before the =", "ARG =1\nFROM python:${A}\n"},
+		{"an ARG with no name at all", "ARG\nFROM python:${A}\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us := Extract("Dockerfile", []byte(tt.body))
+			if len(ds) != 0 {
+				t.Fatalf("declarations = %+v; want none", ds)
+			}
+			if len(us) != 1 {
+				t.Fatalf("unreadable = %+v; want one", us)
 			}
 		})
 	}

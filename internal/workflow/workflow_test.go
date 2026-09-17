@@ -71,8 +71,10 @@ func TestRunsOn(t *testing.T) {
 	t.Run("a group with its labels", func(t *testing.T) {
 		check(t, "jobs:\n  a:\n    runs-on:\n      group: big\n      labels: [macos-14]\n", want{Runners, "macos-14", 0})
 	})
-	t.Run("a mapping of one entry, which the parser shapes differently", func(t *testing.T) {
-		check(t, "runs-on: macos-13\n", want{Runners, "macos-13", 1})
+	// A document whose root holds one key is shaped differently by the
+	// parser, and jobs: alone is the shape nearly every workflow has.
+	t.Run("a root of one entry, which the parser shapes differently", func(t *testing.T) {
+		check(t, "jobs:\n  a:\n    runs-on: macos-13\n", want{Runners, "macos-13", 3})
 	})
 	t.Run("labels alone, with no group beside them", func(t *testing.T) {
 		check(t, "jobs:\n  a:\n    runs-on:\n      labels: [macos-13]\n", want{Runners, "macos-13", 0})
@@ -148,10 +150,19 @@ func TestReported(t *testing.T) {
 	}{
 		{"a moving runner", "jobs:\n  a:\n    runs-on: ubuntu-latest\n",
 			"ubuntu-latest", "names latest, not a version"},
-		{"a runner from the matrix", "jobs:\n  a:\n    runs-on: ${{ matrix.os }}\n",
+		// A matrix key the job's matrix does not list is a value this file
+		// cannot produce; the ones it does list are TestMatrix.
+		{"a runner from a matrix that lists none", "jobs:\n  a:\n    runs-on: ${{ matrix.os }}\n",
 			"${{ matrix.os }}", "takes its runner from an expression"},
-		{"a version from the matrix", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.python }}\n",
+		{"a version from a matrix that lists none", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.python }}\n",
 			"${{ matrix.python }}", "takes its version from an expression"},
+		// A matrix built at run time lists nothing to read either.
+		{"a matrix built by an expression", "jobs:\n  a:\n    strategy:\n      matrix: ${{ fromJSON(needs.setup.outputs.m) }}\n    runs-on: ${{ matrix.os }}\n",
+			"${{ matrix.os }}", "takes its runner from an expression"},
+		// An expression that does more than name a key works itself out at
+		// run time, whatever the matrix lists.
+		{"a label built out of a matrix value", "jobs:\n  a:\n    strategy:\n      matrix:\n        arch: [arm]\n    runs-on: ubuntu-24.04-${{ matrix.arch }}\n",
+			"ubuntu-24.04-${{ matrix.arch }}", "takes its runner from an expression"},
 		// An expression may run over several lines. A complaint is one line,
 		// so that every line of stderr starts with the program's name, and
 		// folding rather than truncating keeps it readable: an expression
@@ -282,5 +293,138 @@ func TestSelfReferringRunsOn(t *testing.T) {
 		if len(ds) != 0 || len(us) != 0 {
 			t.Errorf("Extract(%q) = %+v, %+v; want nothing", body, ds, us)
 		}
+	}
+}
+
+// TestMatrix covers the versions a job runs over. A matrix is where a project
+// says which versions it supports, and `${{ matrix.python-version }}` was the
+// single biggest source of lines this tool could not read — with the answer
+// written out a few lines above it in the same job.
+//
+// Each version is reported at the line of the matrix, which is the line to go
+// and change.
+func TestMatrix(t *testing.T) {
+	t.Run("runners", func(t *testing.T) {
+		body := "jobs:\n" +
+			"  a:\n" +
+			"    strategy:\n" +
+			"      matrix:\n" +
+			"        os: [ubuntu-22.04, macos-13]\n" +
+			"    runs-on: ${{ matrix.os }}\n"
+		check(t, body, want{Runners, "ubuntu-22.04", 5}, want{Runners, "macos-13", 5})
+	})
+	t.Run("versions", func(t *testing.T) {
+		body := "jobs:\n" +
+			"  a:\n" +
+			"    strategy:\n" +
+			"      matrix:\n" +
+			"        python-version:\n" +
+			"          - '3.9'\n" +
+			"          - '3.13'\n" +
+			"    steps:\n" +
+			"      - uses: actions/setup-python@v5\n" +
+			"        with:\n" +
+			"          python-version: ${{ matrix.python-version }}\n"
+		check(t, body, want{"python", "3.9", 6}, want{"python", "3.13", 7})
+	})
+	// A version written without quotes is a number to the parser and text to
+	// everyone else, in a matrix as anywhere else.
+	t.Run("an unquoted version", func(t *testing.T) {
+		body := "jobs:\n  a:\n    strategy:\n      matrix:\n        v: [3.10]\n" +
+			"    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.v }}\n"
+		check(t, body, want{"python", "3.10", 5})
+	})
+	// include: holds whole combinations rather than values, and one of them
+	// may name a version the list does not.
+	t.Run("a version only include names", func(t *testing.T) {
+		body := "jobs:\n  a:\n    strategy:\n      matrix:\n        go: ['1.22']\n        include:\n          - go: '1.21'\n" +
+			"    steps:\n      - uses: actions/setup-go@v5\n        with:\n          go-version: ${{ matrix.go }}\n"
+		check(t, body, want{"go", "1.22", 5}, want{"go", "1.21", 7})
+	})
+	// Two steps reading the same key point at the same lines, which is one
+	// declaration each and not two.
+	t.Run("read twice, declared once", func(t *testing.T) {
+		body := "jobs:\n  a:\n    strategy:\n      matrix:\n        node: ['20']\n" +
+			"    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n" +
+			"      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n"
+		check(t, body, want{"node", "20", 5})
+	})
+	// A matrix belongs to its job, so one job's key says nothing about the
+	// same key in another.
+	t.Run("a matrix is the one job's", func(t *testing.T) {
+		body := "jobs:\n" +
+			"  a:\n    strategy:\n      matrix:\n        v: ['20']\n" +
+			"    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.v }}\n" +
+			"  b:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.v }}\n"
+		ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+		if len(ds) != 1 || ds[0].Product != "node" || ds[0].Version != "20" {
+			t.Fatalf("declarations = %+v; want node 20 alone", ds)
+		}
+		if len(us) != 1 || us[0].Reason != "takes its version from an expression" {
+			t.Fatalf("unreadable = %+v; want the second job's expression", us)
+		}
+	})
+	// A moving value in a matrix is moving wherever it is written.
+	t.Run("a moving value", func(t *testing.T) {
+		body := "jobs:\n  a:\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n    runs-on: ${{ matrix.os }}\n"
+		ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+		if len(ds) != 0 {
+			t.Fatalf("declarations = %+v; want none", ds)
+		}
+		if len(us) != 1 || us[0].Source.Line != 5 || !us[0].Moving {
+			t.Fatalf("unreadable = %+v; want the matrix line, moving", us)
+		}
+	})
+}
+
+// TestMovingReported: a line that follows the newest release on purpose is
+// still read and still handed back, with moving set so that the answer can
+// leave it out of what it reports.
+func TestMovingReported(t *testing.T) {
+	for _, tt := range []struct{ name, body, text string }{
+		{"a latest runner", "jobs:\n  a:\n    runs-on: ubuntu-latest\n", "ubuntu-latest"},
+		{"a version input asking for the newest", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: latest\n", "latest"},
+		{"a bare wildcard input", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '*'\n", "*"},
+		{"nvm's newest lts", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: lts/*\n", "lts/*"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			if len(ds) != 0 {
+				t.Fatalf("declarations = %+v; want none", ds)
+			}
+			if len(us) != 1 || us[0].Text != tt.text || !us[0].Moving {
+				t.Fatalf("unreadable = %+v; want %q, moving", us, tt.text)
+			}
+		})
+	}
+}
+
+// TestMatrixShapes: a workflow may be mid-edit or built at run time, and
+// every shape that is not a job with a matrix of listed values reads as no
+// matrix at all rather than as something to guess at.
+func TestMatrixShapes(t *testing.T) {
+	for _, tt := range []struct{ name, body string }{
+		{"jobs that is not a mapping", "jobs: [a, b]\n"},
+		{"a job that is not a mapping", "jobs:\n  a: ci.yml\n"},
+		{"steps that is not a list", "jobs:\n  a:\n    steps: none\n"},
+		{"a step that is not a mapping", "jobs:\n  a:\n    steps:\n      - run\n"},
+		{"strategy that is not a mapping", "jobs:\n  a:\n    strategy: fail-fast\n    runs-on: macos-13\n"},
+		{"a strategy with no matrix", "jobs:\n  a:\n    strategy:\n      fail-fast: false\n    runs-on: macos-13\n"},
+		{"a matrix key that is not a list", "jobs:\n  a:\n    strategy:\n      matrix:\n        os: ubuntu-22.04\n    runs-on: macos-13\n"},
+		{"an include entry that is not a mapping", "jobs:\n  a:\n    strategy:\n      matrix:\n        include: [x]\n    runs-on: macos-13\n"},
+		{"an exclude, which declares nothing", "jobs:\n  a:\n    strategy:\n      matrix:\n        os: [macos-13]\n        exclude:\n          - os: macos-13\n    runs-on: macos-13\n"},
+		{"a document that is not a workflow", "on: push\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			for _, d := range ds {
+				if d.Version != "macos-13" {
+					t.Errorf("declarations = %+v; want nothing but the job's own runner", ds)
+				}
+			}
+			if len(us) != 0 {
+				t.Errorf("unreadable = %+v; want none", us)
+			}
+		})
 	}
 }

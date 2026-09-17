@@ -12,6 +12,7 @@ import (
 	"github.com/iwamot/eolwhen/internal/catalog"
 	"github.com/iwamot/eolwhen/internal/decl"
 	"github.com/iwamot/eolwhen/internal/resolve"
+	"github.com/iwamot/eolwhen/internal/scan"
 	"github.com/iwamot/eolwhen/internal/timeline"
 )
 
@@ -170,7 +171,7 @@ func TestNotes(t *testing.T) {
 			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version (and 1 more)", "nothing in dir could be placed on the timeline"}},
 		{"a window hid some", resolve.Result{Findings: []timeline.Finding{f, ahead}}, []timeline.Finding{f},
 			cliArgs{withinSet: true, withinText: "90d"},
-			[]string{"1 more expire further out than 90d; drop --within to see them"}},
+			[]string{"1 more declaration expires further out than 90d; drop --within to see it"}},
 		{"nothing owed", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{}, nil},
 		// What a tool list holds is mostly software with no end-of-life
 		// policy, so it is only worth a line when asked for.
@@ -336,7 +337,7 @@ func TestReport(t *testing.T) {
 			a:        cliArgs{dir: ".", withinSet: true, within: 90 * 24 * time.Hour, withinText: "90d"},
 			ds:       []decl.Decl{ahead, expired},
 			wantOut:  "-2450d  2020-01-01  python 2.7  .python-version:1\n",
-			wantErr:  []string{"1 more expire further out than 90d"},
+			wantErr:  []string{"1 more declaration expires further out than 90d"},
 			wantCode: exitPast,
 		},
 		{
@@ -458,6 +459,10 @@ func TestNeedsCatalog(t *testing.T) {
 // label that names no version. Nothing there has to be looked up, so the run
 // answers without the network, the way a directory with no declarations
 // does.
+//
+// ubuntu-latest is also the line nobody can act on: it follows the newest
+// runner image on purpose. The default answer is the one line saying so, and
+// --verbose is what names the label.
 func TestRunWithoutCatalog(t *testing.T) {
 	dir := t.TempDir()
 	wf := filepath.Join(dir, ".github", "workflows")
@@ -468,10 +473,17 @@ func TestRunWithoutCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	so, se, code := runArgs(t, dir)
-	if code != exitNone || so != "" || !strings.Contains(se, "ubuntu-latest names latest") {
+	if code != exitNone || so != "" || !strings.Contains(se, "follows the newest release") {
 		t.Errorf("run(%q) = %q, %q, %d", dir, so, se, code)
 	}
-	so, _, code = runArgs(t, "--json", dir)
+	if strings.Contains(se, "ubuntu-latest") {
+		t.Errorf("stderr = %q; want the label left to --verbose", se)
+	}
+	_, se, code = runArgs(t, "--verbose", dir)
+	if code != exitNone || !strings.Contains(se, "ubuntu-latest names latest") {
+		t.Errorf("run --verbose = %q, %d", se, code)
+	}
+	so, _, code = runArgs(t, "--json", "--verbose", dir)
 	if code != exitNone || !strings.Contains(so, `"text": "ubuntu-latest"`) {
 		t.Errorf("run --json = %q, %d", so, code)
 	}
@@ -560,5 +572,107 @@ func TestReadmeQuotesTheReference(t *testing.T) {
 				t.Errorf("README.md does not quote %s verbatim; paste the current output in", tt.name)
 			}
 		})
+	}
+}
+
+// corpusDoc is a catalog for the directory below: a Python still supported,
+// the Debian its image was built on, and the runner images.
+const corpusDoc = `{"result":[
+  {"name":"python","aliases":[],"releases":[
+    {"name":"3.11","eolFrom":"2027-10-31"},
+    {"name":"3.9","eolFrom":"2025-10-31"}
+  ]},
+  {"name":"debian","aliases":[],"releases":[
+    {"name":"11","codename":"Bullseye","eolFrom":"2026-08-31"}
+  ]},
+  {"name":"github-actions-runner-images","aliases":[],"releases":[
+    {"name":"ubuntu-22.04","eolFrom":"2027-04-01"}
+  ]},
+  {"name":"redis","aliases":[],"releases":[
+    {"name":"8.0","eolFrom":null},
+    {"name":"7.2","eolFrom":"2026-01-01"}
+  ]},
+  {"name":"opensearch","aliases":[],"identifiers":[
+    {"type":"purl","id":"pkg:docker/opensearchproject/opensearch"}
+  ],"releases":[
+    {"name":"1.3","eolFrom":"2023-03-17"}
+  ]}
+]}`
+
+// TestRunCorpus reads a directory of the shape a real project has, and is
+// the test for what the answer leaves out as much as for what it says.
+//
+// Three of the four lines here used to be complaints on stderr that nobody
+// could act on, and the one thing the directory most needed saying — the
+// image is built on a Debian that stops getting security fixes first — was
+// not said at all, because the version the tag carries was read and the
+// distribution beside it was dropped.
+func TestRunCorpus(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A multi-stage build names the same base twice, which is one thing to
+	// deal with and not two.
+	write("Dockerfile", "ARG REGISTRY=\n"+
+		"FROM ${REGISTRY}python:3.11-bullseye AS builder\n"+
+		"RUN pip install .\n"+
+		"FROM ${REGISTRY}python:3.11-bullseye\n")
+	// Third-party images: one endoflife.date publishes a purl for, one
+	// nobody has, and a version older than anything it tracks.
+	write("docker-compose.yml", "services:\n"+
+		"  search:\n    image: opensearchproject/opensearch:1.3.0\n"+
+		"  sandbox:\n    image: acme/sandbox:0.2.10\n"+
+		"  cache:\n    image: redis:3.2\n")
+	write(filepath.Join(".github", "workflows", "ci.yml"), "jobs:\n"+
+		"  lint:\n"+
+		"    runs-on: ubuntu-latest\n"+
+		"  test:\n"+
+		"    strategy:\n"+
+		"      matrix:\n"+
+		"        os: [ubuntu-22.04]\n"+
+		"        python-version: ['3.9']\n"+
+		"    runs-on: ${{ matrix.os }}\n"+
+		"    steps:\n"+
+		"      - uses: actions/setup-python@v5\n"+
+		"        with:\n"+
+		"          python-version: ${{ matrix.python-version }}\n")
+
+	ds, us, err := scan.Dir(dir)
+	if err != nil {
+		t.Fatalf("scan.Dir: %v", err)
+	}
+	c, err := catalog.Decode([]byte(corpusDoc))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	var so, se bytes.Buffer
+	code := report(cliArgs{dir: dir}, c, ds, us, now, &so, &se)
+	want := "" +
+		"-1279d  2023-03-17  opensearch 1.3                             docker-compose.yml:3\n" +
+		" -320d  2025-10-31  python 3.9                                 .github/workflows/ci.yml:8\n" +
+		" -258d  2026-01-01  redis <7.2                                 docker-compose.yml:7\n" +
+		"  -16d  2026-08-31  debian 11                                  Dockerfile:2,4\n" +
+		" +197d  2027-04-01  github-actions-runner-images ubuntu-22.04  .github/workflows/ci.yml:7\n" +
+		" +410d  2027-10-31  python 3.11                                Dockerfile:2,4\n"
+	if so.String() != want {
+		t.Errorf("stdout =\n%s\nwant\n%s", so.String(), want)
+	}
+	// What is left over is ubuntu-latest, which follows the newest runner
+	// image on purpose, and acme/sandbox, which endoflife.date publishes no
+	// image for. Neither is a line anyone can act on, so the default answer
+	// says nothing at all.
+	if se.String() != "" {
+		t.Errorf("stderr = %q; want empty", se.String())
+	}
+	if code != exitPast {
+		t.Errorf("code = %d; want %d", code, exitPast)
 	}
 }

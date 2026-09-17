@@ -1,6 +1,9 @@
 package image
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestSkip(t *testing.T) {
 	for _, tt := range []struct {
@@ -20,7 +23,8 @@ func TestSkip(t *testing.T) {
 }
 
 // TestReadCaught is the half that reaches the timeline: an official image
-// with a tag that names a version.
+// with a tag that names a version. The first declaration is the software the
+// image is; TestReadBase covers the ones its variant adds.
 func TestReadCaught(t *testing.T) {
 	for _, tt := range []struct{ name, ref, product, version string }{
 		{"plain", "python:3.7", "python", "3.7"},
@@ -47,12 +51,15 @@ func TestReadCaught(t *testing.T) {
 		{"a codename with a date", "ubuntu:jammy-20230624", "ubuntu", "jammy"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			product, version, reason := Read(tt.ref)
+			ns, reason, _ := Read(tt.ref)
 			if reason != "" {
 				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, reason)
 			}
-			if product != tt.product || version != tt.version {
-				t.Errorf("Read(%q) = %s %s; want %s %s", tt.ref, product, version, tt.product, tt.version)
+			if len(ns) == 0 {
+				t.Fatalf("Read(%q) named nothing", tt.ref)
+			}
+			if ns[0].Product != tt.product || ns[0].Version != tt.version {
+				t.Errorf("Read(%q) = %s %s; want %s %s", tt.ref, ns[0].Product, ns[0].Version, tt.product, tt.version)
 			}
 		})
 	}
@@ -62,38 +69,136 @@ func TestReadCaught(t *testing.T) {
 // Each names software this tool cannot identify from the line, so guessing
 // is what would put a wrong date on the timeline.
 func TestReadReported(t *testing.T) {
-	for _, tt := range []struct{ name, ref, reason string }{
-		{"someone else's namespace", "ghcr.io/acme/python:3.7",
-			"is not a Docker official image, so its contents are not known here"},
-		{"a Docker Hub user's image", "acme/python:3.7",
-			"is not a Docker official image, so its contents are not known here"},
-		{"a private registry with a port", "registry.corp:5000/base:1.2",
-			"is not a Docker official image, so its contents are not known here"},
-		{"a mirror of something else entirely", "public.ecr.aws/acme/python:3.7",
-			"is not a Docker official image, so its contents are not known here"},
-		// Filling in the library namespace is Docker Hub's rule and nobody
-		// else's, so a namespace on Docker Hub is still somebody else's and
-		// a mirror is only the library at the exact path it copies it to.
-		{"another namespace on Docker Hub", "docker.io/acme/python:3.7",
-			"is not a Docker official image, so its contents are not known here"},
-		{"a mirror without the library path", "public.ecr.aws/docker/python:3.7",
-			"is not a Docker official image, so its contents are not known here"},
-		{"nothing at all", "",
-			"is not a Docker official image, so its contents are not known here"},
+	for _, tt := range []struct {
+		name, ref, reason string
+		moving            bool
+	}{
+		{"nothing at all", "", "names no image", false},
 		{"pinned by digest", "python@sha256:00",
-			"is pinned by digest, which does not say which version it is"},
-		{"no tag", "python", "names no tag, so it follows latest"},
-		{"latest", "python:latest", "names latest, not a version"},
-		{"a variable", "python:${PYTHON_VERSION}", "takes its version from a variable"},
+			"is pinned by digest, which does not say which version it is", false},
+		// A reference that follows the newest release was never going to
+		// have a date, so it is moving rather than a line to go and read.
+		{"no tag", "python", "names no tag, so it follows latest", true},
+		{"latest", "python:latest", "names latest, not a version", true},
+		{"a variable in the tag", "python:${PYTHON_VERSION}", "takes its version from a variable", false},
+		{"a variable in the name", "${REGISTRY}python:3.11-bullseye",
+			"takes its image from a variable, so its contents are not known here", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			product, version, reason := Read(tt.ref)
+			ns, reason, moving := Read(tt.ref)
 			if reason != tt.reason {
 				t.Fatalf("Read(%q) reason = %q; want %q", tt.ref, reason, tt.reason)
 			}
-			if product != "" || version != "" {
-				t.Errorf("Read(%q) = %s %s; want nothing", tt.ref, product, version)
+			if len(ns) != 0 {
+				t.Errorf("Read(%q) = %+v; want nothing", tt.ref, ns)
+			}
+			if moving != tt.moving {
+				t.Errorf("Read(%q) moving = %v; want %v", tt.ref, moving, tt.moving)
 			}
 		})
+	}
+}
+
+// TestReadBase covers the half of a tag that usually expires first: the
+// distribution the image was built on, which the variant after the dash
+// names. A segment that is not one carries no declaration, and the ones that
+// name a codename leave the product for the catalog to fill in.
+func TestReadBase(t *testing.T) {
+	for _, tt := range []struct {
+		name, ref string
+		want      []Named
+	}{
+		{"a codename variant", "python:3.12.4-bookworm", []Named{
+			{Product: "python", Version: "3.12.4"},
+			{Version: "bookworm"},
+		}},
+		{"a codename behind another word", "python:3.12-slim-bookworm", []Named{
+			{Product: "python", Version: "3.12"},
+			{Version: "slim"},
+			{Version: "bookworm"},
+		}},
+		{"an alpine release", "node:20-alpine3.19", []Named{
+			{Product: "node", Version: "20"},
+			{Product: "alpine", Version: "3.19"},
+		}},
+		{"alpine with no release named", "php:8.2-fpm-alpine", []Named{
+			{Product: "php", Version: "8.2"},
+			{Version: "fpm"},
+			{Version: "alpine"},
+		}},
+		{"a segment carrying digits is no codename", "python:3.12-windowsservercore-ltsc2022", []Named{
+			{Product: "python", Version: "3.12"},
+			{Version: "windowsservercore"},
+		}},
+		// A codename is written in lowercase and is a word; neither a
+		// shouted variant nor the nothing between two dashes is one.
+		{"a variant in capitals", "python:3.12-SLIM", []Named{
+			{Product: "python", Version: "3.12"},
+		}},
+		{"an empty segment", "python:3.12--slim", []Named{
+			{Product: "python", Version: "3.12"},
+			{Version: "slim"},
+		}},
+		{"a tag with no variant at all", "postgres:16", []Named{
+			{Product: "postgres", Version: "16"},
+		}},
+		{"the distribution's own image names it once", "debian:bookworm-slim", []Named{
+			{Product: "debian", Version: "bookworm"},
+			{Version: "slim"},
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ns, reason, _ := Read(tt.ref)
+			if reason != "" {
+				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, reason)
+			}
+			if !reflect.DeepEqual(ns, tt.want) {
+				t.Errorf("Read(%q) = %+v; want %+v", tt.ref, ns, tt.want)
+			}
+		})
+	}
+}
+
+// TestReadOutsideTheLibrary covers the names anyone may publish. None of
+// them says what it holds, so each is handed on as the repository it is,
+// for the catalog to recognize among the images its products publish or
+// not. Nothing is guessed: acme/python is a name, not Python.
+func TestReadOutsideTheLibrary(t *testing.T) {
+	for _, tt := range []struct{ name, ref, product, version string }{
+		{"a Docker Hub user's image", "acme/python:3.7", "acme/python", "3.7"},
+		{"another registry", "ghcr.io/acme/python:3.7", "ghcr.io/acme/python", "3.7"},
+		{"a private registry with a port", "registry.corp:5000/base:1.2", "registry.corp:5000/base", "1.2"},
+		{"a mirror of something else entirely", "public.ecr.aws/acme/python:3.7", "public.ecr.aws/acme/python", "3.7"},
+		// Filling in the library namespace is Docker Hub's rule and nobody
+		// else's, so a namespace on Docker Hub is still somebody else's and
+		// a mirror is only the library at the exact path it copies it to.
+		// Docker Hub's host comes off, because a purl spells the repository
+		// without it.
+		{"another namespace on Docker Hub", "docker.io/acme/python:3.7", "acme/python", "3.7"},
+		{"a mirror without the library path", "public.ecr.aws/docker/python:3.7", "public.ecr.aws/docker/python", "3.7"},
+		{"one endoflife.date publishes a purl for", "opensearchproject/opensearch:1.3.0", "opensearchproject/opensearch", "1.3.0"},
+		{"a namespace under a mirror's library path", "public.ecr.aws/docker/library/acme/python:3.7", "public.ecr.aws/docker/library/acme/python", "3.7"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ns, reason, _ := Read(tt.ref)
+			if reason != "" {
+				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, reason)
+			}
+			want := []Named{{Product: tt.product, Version: tt.version}}
+			if !reflect.DeepEqual(ns, want) {
+				t.Errorf("Read(%q) = %+v; want %+v", tt.ref, ns, want)
+			}
+		})
+	}
+}
+
+// TestReadVariantIsTheLibrarys: the variant convention is the official
+// library's own, so another publisher's tag ending in a word is left as the
+// word it is rather than read as the distribution of that name.
+func TestReadVariantIsTheLibrarys(t *testing.T) {
+	ns, _, _ := Read("acme/app:1.2-bookworm")
+	want := []Named{{Product: "acme/app", Version: "1.2"}}
+	if !reflect.DeepEqual(ns, want) {
+		t.Errorf("Read = %+v; want %+v", ns, want)
 	}
 }

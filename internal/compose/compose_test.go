@@ -42,8 +42,11 @@ func TestExtract(t *testing.T) {
 		"  legacy:\n" +
 		"    image: ghcr.io/acme/web:1.0\n"
 	ds, us := Extract("compose.yml", []byte(body))
-	if len(ds) != 2 {
-		t.Fatalf("declarations = %+v; want 2", ds)
+	// The alpine between them is the variant the postgres tag carries, which
+	// is declared at the same line as the image itself, and the last is the
+	// private image, handed on as the repository it is.
+	if len(ds) != 4 {
+		t.Fatalf("declarations = %+v; want 4", ds)
 	}
 	if ds[0].Product != "postgres" || ds[0].Version != "11" {
 		t.Errorf("[0] = %+v; want postgres 11", ds[0])
@@ -51,11 +54,17 @@ func TestExtract(t *testing.T) {
 	if ds[0].Source != (decl.Source{File: "compose.yml", Line: 3}) {
 		t.Errorf("[0] source = %v; want compose.yml:3", ds[0].Source)
 	}
-	if ds[1].Product != "redis" || ds[1].Version != "5" {
-		t.Errorf("[1] = %+v; want redis 5", ds[1])
+	if ds[1].Product != "" || ds[1].Version != "alpine" {
+		t.Errorf("[1] = %+v; want the alpine variant", ds[1])
 	}
-	if len(us) != 1 || us[0].Text != "ghcr.io/acme/web:1.0" {
-		t.Errorf("unreadable = %+v; want the private image", us)
+	if ds[2].Product != "redis" || ds[2].Version != "5" {
+		t.Errorf("[2] = %+v; want redis 5", ds[2])
+	}
+	if ds[3].Product != "ghcr.io/acme/web" || ds[3].Version != "1.0" {
+		t.Errorf("[3] = %+v; want ghcr.io/acme/web 1.0", ds[3])
+	}
+	if len(us) != 0 {
+		t.Errorf("unreadable = %+v; want none", us)
 	}
 }
 

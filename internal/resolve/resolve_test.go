@@ -86,19 +86,6 @@ func TestAllReports(t *testing.T) {
 		// variant; it is a runner that is simply not offered any more.
 		{"a retired runner label", decl.Decl{Product: "runners", Version: "windows-2019", Source: src("x")},
 			"no release cycle covers this version"},
-		// A major line is a rule for following the newest cycle under it,
-		// so it gets no date of its own.
-		{"a major line over several cycles", decl.Decl{Product: "redis", Version: "7", Source: src("x")},
-			"names a major line rather than a release cycle, so it follows the newest in that line"},
-		{"a major line over exactly one", decl.Decl{Product: "redis", Version: "8", Source: src("x")},
-			"names a major line rather than a release cycle, so it follows the newest in that line"},
-		{"a major line over many", decl.Decl{Product: "python", Version: "3", Source: src("x")},
-			"names a major line rather than a release cycle, so it follows the newest in that line"},
-		// A build of whatever the current release is, not a release.
-		{"a variant", decl.Decl{Product: "redis", Version: "alpine", Source: src("x")},
-			"names a variant or an alias, not a version"},
-		{"an alias", decl.Decl{Product: "python", Version: "latest-slim", Source: src("x")},
-			"names a variant or an alias, not a version"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := All(load(t), []decl.Decl{tt.d}, nil)
@@ -109,6 +96,61 @@ func TestAllReports(t *testing.T) {
 				t.Fatalf("Unreadable = %+v; want reason %q", r.Unreadable, tt.reason)
 			}
 		})
+	}
+}
+
+// TestAllSetsAsideMoving covers the lines that name no fixed version by
+// design. A major line is a rule for following the newest cycle under it and
+// a variant is a build of whatever the current release is, so neither has a
+// date of its own and neither is a line to go and change. Reporting them is
+// what filled the output with complaints nobody could act on, so they are
+// set aside for --verbose like the rest.
+func TestAllSetsAsideMoving(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		d      decl.Decl
+		reason string
+	}{
+		{"a major line over several cycles", decl.Decl{Product: "redis", Version: "7", Source: src("x")},
+			"names a major line rather than a release cycle, so it follows the newest in that line"},
+		{"a major line over exactly one", decl.Decl{Product: "redis", Version: "8", Source: src("x")},
+			"names a major line rather than a release cycle, so it follows the newest in that line"},
+		{"a major line over many", decl.Decl{Product: "python", Version: "3", Source: src("x")},
+			"names a major line rather than a release cycle, so it follows the newest in that line"},
+		{"a variant", decl.Decl{Product: "redis", Version: "alpine", Source: src("x")},
+			"names a variant or an alias, not a version"},
+		{"an alias", decl.Decl{Product: "python", Version: "latest-slim", Source: src("x")},
+			"names a variant or an alias, not a version"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := All(load(t), []decl.Decl{tt.d}, nil)
+			if len(r.Findings) != 0 || len(r.Unreadable) != 0 {
+				t.Fatalf("All = %+v; want nothing placed and nothing reported", r)
+			}
+			if len(r.Moving) != 1 || r.Moving[0].Reason != tt.reason {
+				t.Fatalf("Moving = %+v; want reason %q", r.Moving, tt.reason)
+			}
+		})
+	}
+}
+
+// TestAllKeepsMovingApart: a line an extractor already knew was moving —
+// :latest, ubuntu-latest, a tool pinned to stable — is set aside on the same
+// grounds, and only the ones about software the catalog does not track go on
+// being counted as untracked.
+func TestAllKeepsMovingApart(t *testing.T) {
+	label := decl.Unreadable{Source: src("ci.yml"), Text: "ubuntu-latest", Reason: "names latest, not a version", Moving: true}
+	tool := decl.Unreadable{Source: src("mise.toml"), Product: "node", Text: "latest", Reason: "names a moving target, not a version", Moving: true}
+	untracked := decl.Unreadable{Source: src("mise.toml"), Product: "jq", Text: "latest", Reason: "names a moving target, not a version", Moving: true}
+	r := All(load(t), nil, []decl.Unreadable{label, tool, untracked})
+	if len(r.Unreadable) != 0 {
+		t.Fatalf("Unreadable = %+v; want none", r.Unreadable)
+	}
+	if len(r.Moving) != 2 || r.Moving[0] != label || r.Moving[1] != tool {
+		t.Errorf("Moving = %+v; want the label and the tool", r.Moving)
+	}
+	if len(r.Untracked) != 1 || r.Untracked[0].Product != "jq" {
+		t.Errorf("Untracked = %+v; want jq alone", r.Untracked)
 	}
 }
 
@@ -172,6 +214,32 @@ func TestAllByCodename(t *testing.T) {
 	}
 }
 
+// TestAllBaseCodename covers the half of an image tag that names its
+// distribution: a declaration with no product, whose version is the word
+// itself. The catalog says which words those are, and a word it has no
+// codename for — the slim in python:3.12-slim — was a build variant and
+// never a declaration, so it is dropped without a word of its own.
+func TestAllBaseCodename(t *testing.T) {
+	c, err := catalog.Decode([]byte(`{"result":[
+	  {"name":"debian","aliases":[],"releases":[
+	    {"name":"11","codename":"Bullseye","eolFrom":"2026-08-31"}
+	  ]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	r := All(c, []decl.Decl{
+		{Version: "bullseye", Source: src("Dockerfile")},
+		{Version: "slim", Source: src("Dockerfile")},
+	}, nil)
+	if len(r.Unreadable) != 0 || len(r.Moving) != 0 || len(r.Untracked) != 0 {
+		t.Fatalf("All = %+v; want nothing reported and nothing set aside", r)
+	}
+	if len(r.Findings) != 1 || r.Findings[0].Product != "debian" || r.Findings[0].Cycle != "11" {
+		t.Fatalf("Findings = %+v; want debian 11", r.Findings)
+	}
+}
+
 // TestAllSortsUnreadable: a line an extractor could not read is still a line
 // about some software, and the same rule applies to it. One about software
 // the catalog does not track is set aside, whatever its version looked like;
@@ -195,5 +263,75 @@ func TestAllSortsUnreadable(t *testing.T) {
 	r = All(nil, nil, []decl.Unreadable{label})
 	if len(r.Unreadable) != 1 || len(r.Untracked) != 0 {
 		t.Errorf("All(nil) = %+v; want the label alone", r)
+	}
+}
+
+// TestAllByImage covers a name outside the official library. It reaches a
+// product only when endoflife.date publishes that image for one, and a name
+// nobody published is a declaration of software the catalog does not track:
+// there was never a date to find, so it is set aside rather than reported.
+func TestAllByImage(t *testing.T) {
+	c, err := catalog.Decode([]byte(`{"result":[
+	  {"name":"opensearch","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:docker/opensearchproject/opensearch"}
+	  ],"releases":[{"name":"1.3","eolFrom":"2023-03-17"}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	r := All(c, []decl.Decl{
+		{Product: "opensearchproject/opensearch", Version: "1.3.0", Source: src("compose.yml")},
+		{Product: "acme/sandbox", Version: "0.2.10", Source: src("compose.yml")},
+	}, nil)
+	if len(r.Unreadable) != 0 {
+		t.Fatalf("Unreadable = %+v; want none", r.Unreadable)
+	}
+	// The row names the product, not the image the file happened to write.
+	if len(r.Findings) != 1 || r.Findings[0].Product != "opensearch" || r.Findings[0].Cycle != "1.3" {
+		t.Fatalf("Findings = %+v; want opensearch 1.3", r.Findings)
+	}
+	if len(r.Untracked) != 1 || r.Untracked[0].Product != "acme/sandbox" {
+		t.Errorf("Untracked = %+v; want the unpublished image alone", r.Untracked)
+	}
+}
+
+// TestAllPredating covers the version older than anything endoflife.date
+// tracks. A redis 3.2 is the most neglected line in a directory, and reading
+// it as a version nobody has heard of is the one answer that is certainly
+// wrong. It gets a row, carrying the day the oldest tracked cycle ended,
+// which support for anything older had run out by.
+func TestAllPredating(t *testing.T) {
+	r := All(load(t), []decl.Decl{{Product: "redis", Version: "3.2", Source: src("compose.yml")}}, nil)
+	if len(r.Unreadable) != 0 || len(r.Moving) != 0 {
+		t.Fatalf("All = %+v; want nothing reported", r)
+	}
+	if len(r.Findings) != 1 || r.Findings[0].Cycle != "<7.2" {
+		t.Fatalf("Findings = %+v; want cycle <7.2", r.Findings)
+	}
+	if got := r.Findings[0].EOL.Format(time.DateOnly); got != "2026-01-01" {
+		t.Errorf("EOL = %s; want the oldest cycle's own date", got)
+	}
+}
+
+// TestAllPredatingNeedsADate: a product whose cycles are words has no
+// ordering of this kind, and one whose oldest cycle has no end date
+// announced has no day to carry over. Both are reported as they were.
+func TestAllPredatingNeedsADate(t *testing.T) {
+	c, err := catalog.Decode([]byte(`{"result":[
+	  {"name":"runners","aliases":[],"releases":[{"name":"macos-15","eolFrom":"2028-01-01"}]},
+	  {"name":"new","aliases":[],"releases":[{"name":"2.0","eolFrom":null}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	r := All(c, []decl.Decl{
+		{Product: "runners", Version: "macos-11", Source: src("ci.yml")},
+		{Product: "new", Version: "1.0", Source: src("x")},
+	}, nil)
+	if len(r.Findings) != 0 {
+		t.Fatalf("Findings = %+v; want none", r.Findings)
+	}
+	if len(r.Unreadable) != 2 {
+		t.Fatalf("Unreadable = %+v; want both reported", r.Unreadable)
 	}
 }

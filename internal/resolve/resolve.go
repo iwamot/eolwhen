@@ -14,6 +14,12 @@ import (
 type Result struct {
 	Findings   []timeline.Finding
 	Unreadable []decl.Unreadable
+	// Moving are the lines that name no fixed version by design: a :latest
+	// tag, an ubuntu-latest runner, a tag naming only a major line. They
+	// follow the newest release on purpose, so there is no date to place and
+	// nothing to go and change, and --verbose accounts for them like the
+	// rest.
+	Moving []decl.Unreadable
 	// Untracked are the declarations naming software endoflife.date has no
 	// product for. They are kept rather than forgotten so --verbose can
 	// account for them, and left out of the default output because there was
@@ -40,6 +46,11 @@ type Result struct {
 // has not been dated yet, which is what a current version looks like.
 // --verbose asks for both anyway.
 //
+// A line that follows the newest release on purpose is the third: a :latest
+// tag, an ubuntu-latest runner, a tag naming a major line. Nothing is wrong
+// with it either, and there is no fixed cycle behind it to date, so it is
+// set aside with the other two.
+//
 // What is reported is the line resolution could not follow at all: no
 // release cycle covers the version. There the software is known and the
 // version is not one it ever had, so the line itself is what to go and look
@@ -52,71 +63,159 @@ type Result struct {
 func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 	var r Result
 	for _, u := range us {
-		if u.Product != "" {
-			if _, ok := c.Lookup(u.Product); !ok {
-				r.Untracked = append(r.Untracked, decl.Decl{Product: u.Product, Version: u.Text, Source: u.Source})
-				continue
-			}
+		if u.Product != "" && !tracked(c, u.Product) {
+			r.Untracked = append(r.Untracked, decl.Decl{Product: u.Product, Version: u.Text, Source: u.Source})
+			continue
 		}
-		r.Unreadable = append(r.Unreadable, u)
+		r.add(u)
 	}
 	for _, d := range ds {
-		p, ok := c.Lookup(d.Product)
+		if d.Product == "" {
+			r.codename(c, d)
+			continue
+		}
+		p, ok := product(c, d.Product)
 		if !ok {
 			r.Untracked = append(r.Untracked, d)
 			continue
 		}
 		name, ok := match(p, d.Version)
 		if !ok {
-			r.Unreadable = append(r.Unreadable, decl.Unreadable{
+			if cycle, release, older := predating(p, d.Version); older {
+				r.place(p.Name, cycle, release, d.Source)
+				continue
+			}
+			reason, moving := unmatched(p, d.Version)
+			r.add(decl.Unreadable{
 				Source:  d.Source,
 				Product: p.Name,
 				Text:    d.Version,
-				Reason:  unmatched(p, d.Version),
+				Reason:  reason,
+				Moving:  moving,
 			})
 			continue
 		}
-		eol, ok := p.Release(name).EOL()
-		if !ok {
-			r.Undated = append(r.Undated, timeline.Undated{
-				Product: p.Name,
-				Cycle:   name,
-				Source:  d.Source,
-			})
-			continue
-		}
-		r.Findings = append(r.Findings, timeline.Finding{
-			Product: p.Name,
-			Cycle:   name,
-			EOL:     eol,
-			Source:  d.Source,
-		})
+		r.place(p.Name, name, p.Release(name), d.Source)
 	}
 	return r
 }
 
-// unmatched says why a version reached no cycle. Three things are true at
-// this point and each leaves the reader somewhere different.
+// add files a line that reached no cycle: as one to go and look at, or, when
+// it was following the newest release on purpose, as one with no date to
+// place and nothing to do about it.
+func (r *Result) add(u decl.Unreadable) {
+	if u.Moving {
+		r.Moving = append(r.Moving, u)
+		return
+	}
+	r.Unreadable = append(r.Unreadable, u)
+}
+
+func tracked(c *catalog.Catalog, name string) bool {
+	_, ok := product(c, name)
+	return ok
+}
+
+// product finds what a declaration is about: a name the catalog answers to,
+// or the Docker Hub repository a product publishes under. The second is what
+// reaches software outside the official library — opensearchproject/opensearch
+// is OpenSearch because endoflife.date says so — and it costs nothing
+// elsewhere, since no other kind of name is written with a slash.
+func product(c *catalog.Catalog, name string) (catalog.Product, bool) {
+	if p, ok := c.Lookup(name); ok {
+		return p, true
+	}
+	return c.ByImage(name)
+}
+
+// predating places a version older than every cycle the catalog tracks.
+//
+// A redis 3.2 in a Compose file is the most neglected line in the
+// directory, and reading it as a version nobody has heard of is the one
+// answer that is certainly wrong: endoflife.date starts at 4.0 because
+// everything below it stopped being a going concern long ago. So it gets a
+// row, and the row carries the day the oldest tracked cycle ended, which
+// support for anything older had already run out by. The cycle reads <4.0,
+// so that the row says what it knows — out of support by this date — and
+// not a day it cannot know.
+//
+// A product whose cycles are words has no ordering of this kind, and one
+// whose oldest cycle has no end date announced yet has no day to carry
+// over; both fall through to being reported.
+func predating(p catalog.Product, v string) (string, catalog.Release, bool) {
+	oldest, ok := cycle.Oldest(p.Cycles())
+	if !ok || !cycle.Before(v, oldest) {
+		return "", catalog.Release{}, false
+	}
+	release := p.Release(oldest)
+	if _, dated := release.EOL(); !dated {
+		return "", catalog.Release{}, false
+	}
+	return "<" + oldest, release, true
+}
+
+// codename places a declaration whose version names its software as well:
+// the -bookworm an image tag carries, which says Debian and 12 in one word.
+//
+// A word the catalog has no codename for is dropped without any word of its
+// own. It was a build variant — slim, fpm, jre — and not a declaration read
+// wrong, so there is nothing to account for and nothing to report: the tag
+// segments an image carries are not all versions, and only the catalog can
+// say which of them are.
+func (r *Result) codename(c *catalog.Catalog, d decl.Decl) {
+	p, release, ok := c.ByCodename(d.Version)
+	if !ok {
+		return
+	}
+	r.place(p.Name, release.Name, release, d.Source)
+}
+
+// place files a declaration that reached a cycle: as a finding when the
+// cycle has an end date, and as undated when it has none.
+func (r *Result) place(product, cycle string, release catalog.Release, src decl.Source) {
+	eol, ok := release.EOL()
+	if !ok {
+		r.Undated = append(r.Undated, timeline.Undated{
+			Product: product,
+			Cycle:   cycle,
+			Source:  src,
+		})
+		return
+	}
+	r.Findings = append(r.Findings, timeline.Finding{
+		Product: product,
+		Cycle:   cycle,
+		EOL:     eol,
+		Source:  src,
+	})
+}
+
+// unmatched says why a version reached no cycle, and whether the line was
+// following the newest release rather than naming one. Three things are true
+// at this point and each leaves the reader somewhere different.
 //
 // A version that starts with a letter, of a product that numbers its cycles,
 // named a variant or an alias of some version rather than a version: alpine
-// and slim are builds of whatever the current release is. Codenames are
-// already gone by here, and the runner images name their own cycles with
-// letters, so neither is caught by this.
+// and slim are builds of whatever the current release is, so the line is
+// moving by design. Codenames are already gone by here, and the runner
+// images name their own cycles with letters, so neither is caught by this.
 //
 // A version that covers cycles without being one named a major line, which
 // is a rule for following the newest of them rather than a version. It gets
-// no date, because the date it would get moves on its own.
+// no date, because the date it would get moves on its own, and it is moving
+// for the same reason.
 //
-// Anything else is a version the catalog has never had.
-func unmatched(p catalog.Product, v string) string {
+// Anything else is a version the catalog has never had, and that line is one
+// to go and look at. A version older than every cycle it tracks is not
+// among them: predating has already placed that one on the timeline.
+func unmatched(p catalog.Product, v string) (reason string, moving bool) {
 	switch {
 	case p.Numbered() && (v == "" || v[0] < '0' || v[0] > '9'):
-		return "names a variant or an alias, not a version"
+		return "names a variant or an alias, not a version", true
 	case cycle.Covering(v, p.Cycles()) > 0:
-		return "names a major line rather than a release cycle, so it follows the newest in that line"
+		return "names a major line rather than a release cycle, so it follows the newest in that line", true
 	default:
-		return "no release cycle covers this version"
+		return "no release cycle covers this version", false
 	}
 }
 

@@ -204,3 +204,83 @@ func TestNumbered(t *testing.T) {
 		}
 	}
 }
+
+// TestCatalogByCodename covers the word an image tag carries in place of a version.
+// It is looked up across the whole catalog, because the word names the
+// software as well: only Debian calls a release bookworm.
+func TestCatalogByCodename(t *testing.T) {
+	c, err := Decode([]byte(`{"result":[
+	  {"name":"debian","aliases":[],"releases":[
+	    {"name":"12","codename":"Bookworm","eolFrom":"2028-06-30"},
+	    {"name":"11","codename":"Bullseye","eolFrom":"2026-08-31"}
+	  ]},
+	  {"name":"ubuntu","aliases":[],"releases":[
+	    {"name":"24.04","codename":"Noble Numbat","eolFrom":"2029-05-31"}
+	  ]},
+	  {"name":"alpine-linux","aliases":[],"releases":[
+	    {"name":"3.19","eolFrom":"2025-11-01"}
+	  ]},
+	  {"name":"one","aliases":[],"releases":[{"name":"1","codename":"Shared"}]},
+	  {"name":"two","aliases":[],"releases":[{"name":"2","codename":"Shared"}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	for _, tt := range []struct{ query, product, cycle string }{
+		{"bookworm", "debian", "12"},
+		{"bullseye", "debian", "11"},
+		{"BULLSEYE", "debian", "11"},
+		// The catalog writes the codename in full and the image tags its
+		// first word.
+		{"noble", "ubuntu", "24.04"},
+		// A build variant is not a codename, and neither is nothing.
+		{"slim", "", ""},
+		{"", "", ""},
+		// A word two products share answers neither: which one a tag meant
+		// would be a guess.
+		{"shared", "", ""},
+	} {
+		p, r, ok := c.ByCodename(tt.query)
+		if ok != (tt.product != "") || p.Name != tt.product || r.Name != tt.cycle {
+			t.Errorf("ByCodename(%q) = %q %q, %v; want %q %q", tt.query, p.Name, r.Name, ok, tt.product, tt.cycle)
+		}
+	}
+}
+
+// TestByImage covers the names outside the official library. Which image
+// holds which software is upstream's own answer, published as a purl, so
+// nothing about it is read out of the name.
+func TestByImage(t *testing.T) {
+	c, err := Decode([]byte(`{"result":[
+	  {"name":"opensearch","aliases":[],"identifiers":[
+	    {"type":"repology","id":"opensearch"},
+	    {"type":"purl","id":"pkg:docker/opensearchproject/opensearch"},
+	    {"type":"cpe","id":"cpe:2.3:a:amazon:opensearch"}
+	  ],"releases":[{"name":"1.3","eolFrom":"2023-03-17"}]},
+	  {"name":"acme-app","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:docker/acme/app@1.0?arch=amd64"}
+	  ],"releases":[]},
+	  {"name":"python","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:pypi/python"}
+	  ],"releases":[]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	for _, tt := range []struct{ query, want string }{
+		{"opensearchproject/opensearch", "opensearch"},
+		{"OpenSearchProject/OpenSearch", "opensearch"},
+		// A version or a qualifier on the purl is not part of the
+		// repository.
+		{"acme/app", "acme-app"},
+		// A purl of another kind says nothing about Docker Hub.
+		{"python", ""},
+		{"acme/unpublished", ""},
+		{"", ""},
+	} {
+		p, ok := c.ByImage(tt.query)
+		if ok != (tt.want != "") || p.Name != tt.want {
+			t.Errorf("ByImage(%q) = %q, %v; want %q", tt.query, p.Name, ok, tt.want)
+		}
+	}
+}

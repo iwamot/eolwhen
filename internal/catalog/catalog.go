@@ -50,14 +50,48 @@ func (r Release) EOL() (t time.Time, ok bool) {
 	return t.UTC(), true
 }
 
+// Identifier is a name upstream publishes for a product in somebody else's
+// namespace: a purl, a CPE, a repology name. The purls of type docker are
+// the ones this tool reads, because they say which image on Docker Hub is
+// which software — upstream's own answer to the question an image name
+// outside the official library cannot answer on its own.
+type Identifier struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
 // Product is one piece of software with its release cycles. Aliases are the
 // other names upstream accepts for it, which is how `node` reaches nodejs
 // and `alpine` reaches alpine-linux without a table of our own.
 type Product struct {
-	Name     string    `json:"name"`
-	Label    string    `json:"label"`
-	Aliases  []string  `json:"aliases"`
-	Releases []Release `json:"releases"`
+	Name        string       `json:"name"`
+	Label       string       `json:"label"`
+	Aliases     []string     `json:"aliases"`
+	Identifiers []Identifier `json:"identifiers"`
+	Releases    []Release    `json:"releases"`
+}
+
+// images lists the Docker Hub repositories this product publishes, as its
+// purls of type docker name them. A purl may carry a version or qualifiers
+// after the name, and neither is part of the repository.
+func (p Product) images() []string {
+	var out []string
+	for _, id := range p.Identifiers {
+		if id.Type != "purl" {
+			continue
+		}
+		name, ok := strings.CutPrefix(id.ID, "pkg:docker/")
+		if !ok {
+			continue
+		}
+		name, _, _ = strings.Cut(name, "@")
+		name, _, _ = strings.Cut(name, "?")
+		name, _, _ = strings.Cut(name, "#")
+		if name != "" {
+			out = append(out, strings.ToLower(name))
+		}
+	}
+	return out
 }
 
 // Cycles lists the cycle names, for matching a declared version.
@@ -98,10 +132,20 @@ func (p Product) Release(cycle string) Release {
 }
 
 // Catalog is the decoded document, indexed by every name a product answers
-// to.
+// to and by every codename its cycles carry.
 type Catalog struct {
-	products []Product
-	byName   map[string]int
+	products   []Product
+	byName     map[string]int
+	byCodename map[string]codename
+	byImage    map[string]int
+}
+
+// codename is where a cycle's codename leads: the product and the release,
+// and whether the word belongs to one of them alone.
+type codename struct {
+	product int
+	release int
+	sole    bool
 }
 
 type document struct {
@@ -118,7 +162,12 @@ func Decode(data []byte) (*Catalog, error) {
 	if len(doc.Result) == 0 {
 		return nil, fmt.Errorf("the endoflife.date catalog came back with no products")
 	}
-	c := &Catalog{products: doc.Result, byName: make(map[string]int, len(doc.Result)*2)}
+	c := &Catalog{
+		products:   doc.Result,
+		byName:     make(map[string]int, len(doc.Result)*2),
+		byCodename: map[string]codename{},
+		byImage:    map[string]int{},
+	}
 	// Aliases go in first and names second, so a product's own name always
 	// wins over another product's alias for the same string.
 	for i, p := range doc.Result {
@@ -133,12 +182,73 @@ func Decode(data []byte) (*Catalog, error) {
 			c.byName[strings.ToLower(p.Name)] = i
 		}
 	}
+	// An image is indexed under the repository each of its purls names. The
+	// first product to claim a repository keeps it: upstream owns these
+	// strings, so two products naming one image is its own bug and not an
+	// ambiguity to resolve here.
+	for i, p := range doc.Result {
+		for _, image := range p.images() {
+			if _, seen := c.byImage[image]; !seen {
+				c.byImage[image] = i
+			}
+		}
+	}
+	// A codename is indexed across the whole catalog, and a word two
+	// products both use is marked as belonging to neither.
+	for i, p := range doc.Result {
+		for j, r := range p.Releases {
+			tag := r.tag()
+			if tag == "" {
+				continue
+			}
+			was, seen := c.byCodename[tag]
+			switch {
+			case !seen:
+				c.byCodename[tag] = codename{product: i, release: j, sole: true}
+			case was.sole && was.product != i:
+				c.byCodename[tag] = codename{}
+			}
+		}
+	}
 	return c, nil
+}
+
+// ByCodename finds the product and cycle a codename names, across the whole
+// catalog. It reads the variant an image tag carries — the -bookworm in
+// python:3.12-bookworm — where the word names the software as well as the
+// version, because only Debian calls a release bookworm.
+//
+// A word two products share answers neither: which one a tag meant would be
+// a guess, and a codename is worth reading precisely because it needs none.
+func (c *Catalog) ByCodename(s string) (Product, Release, bool) {
+	at, ok := c.byCodename[strings.ToLower(s)]
+	if !ok || !at.sole {
+		return Product{}, Release{}, false
+	}
+	p := c.products[at.product]
+	return p, p.Releases[at.release], true
 }
 
 // Lookup finds a product by its name or any alias, ignoring case.
 func (c *Catalog) Lookup(name string) (Product, bool) {
 	i, ok := c.byName[strings.ToLower(name)]
+	if !ok {
+		return Product{}, false
+	}
+	return c.products[i], true
+}
+
+// ByImage finds the product a Docker Hub repository holds, as endoflife.date
+// itself names it: opensearchproject/opensearch is OpenSearch because
+// upstream publishes pkg:docker/opensearchproject/opensearch for it, not
+// because the name reads that way.
+//
+// This is the whole of what is known about a name outside the official
+// library. An image nobody published a purl for is one whose contents are
+// not knowable from the line, and that is a declaration of software the
+// catalog does not track rather than a line to go and look at.
+func (c *Catalog) ByImage(name string) (Product, bool) {
+	i, ok := c.byImage[strings.ToLower(name)]
 	if !ok {
 		return Product{}, false
 	}

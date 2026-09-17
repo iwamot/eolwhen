@@ -92,8 +92,12 @@ func versionLines(path string, f File, data []byte) ([]decl.Decl, []decl.Unreada
 		text := strings.Fields(line)[0]
 		src := decl.Source{File: path, Line: i + 1}
 		v := normalize(text, f.Prefixes)
-		if !looksLikeVersion(v) {
-			us = append(us, decl.Unreadable{Source: src, Product: f.Product, Text: text, Reason: reason(text)})
+		// A codename is only read where a file's own syntax marks one:
+		// nvm's lts/hydrogen names Node.js 18, while a bare word in a
+		// .python-version is an interpreter's name and not a release.
+		if !looksLikeVersion(v) && !(strings.HasPrefix(text, "lts/") && codename(v)) {
+			r, moving := reason(text)
+			us = append(us, decl.Unreadable{Source: src, Product: f.Product, Text: text, Reason: r, Moving: moving})
 			continue
 		}
 		ds = append(ds, decl.Decl{Product: f.Product, Version: v, Source: src})
@@ -117,7 +121,8 @@ func goMod(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 		v := fields[1]
 		src := decl.Source{File: file, Line: i + 1}
 		if !looksLikeVersion(v) {
-			return nil, []decl.Unreadable{{Source: src, Product: "go", Text: v, Reason: reason(v)}}
+			r, moving := reason(v)
+			return nil, []decl.Unreadable{{Source: src, Product: "go", Text: v, Reason: r, Moving: moving}}
 		}
 		return []decl.Decl{{Product: "go", Version: v, Source: src}}, nil
 	}
@@ -143,7 +148,8 @@ func setting(line string) bool {
 }
 
 // normalize strips the decorations these files carry around a version: the
-// product name that rvm and friends write in front of it, and a leading v.
+// product name that rvm and friends write in front of it, the lts/ that nvm
+// writes in front of a codename, and a leading v.
 func normalize(line string, prefixes []string) string {
 	v := line
 	for _, prefix := range prefixes {
@@ -152,7 +158,29 @@ func normalize(line string, prefixes []string) string {
 			break
 		}
 	}
+	v = strings.TrimPrefix(v, "lts/")
 	return strings.TrimPrefix(v, "v")
+}
+
+// codename reports whether what nvm's lts/ was written in front of is one
+// word, which is how nvm names a release line it does not number:
+// lts/hydrogen is Node.js 18, and the codename endoflife.date publishes for
+// that cycle says so. Which words are codenames is the catalog's answer, so
+// a word that is none of them comes back as a version no cycle covers, which
+// is what it is.
+//
+// lts/* and lts/latest are not read this way: they are the newest of them,
+// which moves.
+func codename(s string) bool {
+	if s == "" || s == "latest" {
+		return false
+	}
+	for i := range len(s) {
+		if s[i] < 'a' || s[i] > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 // looksLikeVersion reports whether s starts with a digit, which is the whole
@@ -163,14 +191,17 @@ func looksLikeVersion(s string) bool {
 }
 
 // reason says why a line could not be used, in words that name the next step
-// where there is one.
-func reason(text string) string {
+// where there is one, and whether the line names no fixed version by design.
+// A moving target and a version left to whatever is installed are both the
+// latter: they were never going to have a date, so there is nothing to go
+// and look at.
+func reason(text string) (string, bool) {
 	switch {
 	case strings.HasPrefix(text, "lts/"), text == "lts", text == "node", text == "latest", text == "stable":
-		return "names a moving target, not a version"
+		return "names a moving target, not a version", true
 	case text == "system":
-		return "defers to whatever is installed"
+		return "defers to whatever is installed", true
 	default:
-		return "is not a version"
+		return "is not a version", false
 	}
 }

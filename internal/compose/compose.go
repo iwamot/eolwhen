@@ -58,8 +58,10 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	return ds, us
 }
 
-// service reads one service's image, as at most one of each: a service that
-// declares nothing this tool can speak about comes back with neither.
+// service reads one service's image. A service that declares nothing this
+// tool can speak about comes back with neither a declaration nor a
+// complaint, and one whose tag names the distribution it was built on comes
+// back with a declaration for each.
 func service(file string, svc yamlfile.Entry) ([]decl.Decl, []decl.Unreadable) {
 	entries, ok := svc.Mapping()
 	if !ok {
@@ -80,9 +82,13 @@ func service(file string, svc yamlfile.Entry) ([]decl.Decl, []decl.Unreadable) {
 		return nil, nil
 	}
 	src := decl.Source{File: file, Line: e.Line()}
-	product, version, reason := image.Read(ref)
+	ns, reason, moving := image.Read(ref)
 	if reason != "" {
-		return nil, []decl.Unreadable{{Source: src, Text: ref, Reason: reason}}
+		return nil, []decl.Unreadable{{Source: src, Text: ref, Reason: reason, Moving: moving}}
 	}
-	return []decl.Decl{{Product: product, Version: version, Source: src}}, nil
+	ds := make([]decl.Decl, 0, len(ns))
+	for _, n := range ns {
+		ds = append(ds, decl.Decl{Product: n.Product, Version: n.Version, Source: src})
+	}
+	return ds, nil
 }

@@ -57,30 +57,49 @@ in .github/workflows, then matched against endoflife.date. DIR is searched
 to the bottom, skipping directories that hold somebody else's code:
 node_modules, vendor, .venv and the like.
 
+An image outside the Docker official library is read through the Docker Hub
+repository endoflife.date publishes for each product, so
+opensearchproject/opensearch is OpenSearch on upstream's word; a name nobody
+published is software the catalog does not track, like a tool in a tool
+list. An official image's tag that names the distribution it was built on
+declares that too: python:3.11-bullseye is a Python and a Debian 11, and the
+Debian is usually the half that expires first. A FROM written in terms of a
+build argument is read as a docker build with no --build-arg resolves it,
+and a version given as ${{ matrix.* }} is read from the job's own
+strategy.matrix, which is where a project says which versions it supports.
+
 Every expired declaration is printed, oldest first, together with the ones
-still ahead. A line that names no version — lts/hydrogen, ubuntu-latest, a
-digest-pinned FROM, an image outside the Docker official library — is
-reported on stderr rather than guessed at, once per distinct complaint. A
-declaration with no date to place — software endoflife.date does not track,
-or a cycle it has not dated yet — is set aside without a word, and an empty
-table is one line on stderr saying which of these the directory is.
+still ahead. A version older than every cycle endoflife.date tracks gets a
+row of its own, reading <4.0 and carrying the day that oldest cycle ended,
+which support for anything older had run out by. A line this tool could not
+read — a digest-pinned FROM, an expression it cannot work out, a version no
+release cycle covers — is reported on stderr rather than guessed at, once
+per distinct complaint.
+A declaration with no date to place is set aside without a word: software
+endoflife.date does not track, a cycle it has not dated yet, and a line that
+follows the newest release on purpose, such as ubuntu-latest, a :latest tag
+or a tool pinned to stable. An empty table is one line on stderr saying
+which of these the directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
-  --json          print JSON instead of the table, with the unreadable lines
-                  in the document
+  --json          print JSON instead of the table: one entry per declaration,
+                  with the unreadable lines in the document
   --verbose       also say which declarations have no date to place: software
-                  endoflife.date does not track, and cycles it has not dated
-                  yet
+                  endoflife.date does not track, cycles it has not dated yet,
+                  and lines that follow the newest release on purpose
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
 
 Output:
   Each row is the days until support ends — 0 on the day it ends, negative
-  after — then the date, the software and its release cycle, and the file it
-  was declared in.
+  after — then the date, the software and its release cycle, and every place
+  it was declared. One row is one release cycle, however many lines declared
+  it: a multi-stage build naming the same base three times is one thing to
+  deal with, and a file is named once with its lines behind it, as
+  Dockerfile:2,22,34.
   Only rows go to stdout; everything else is an ` + "`eolwhen:`" + ` line on stderr.
   The exit code answers for the rows that were printed, so --within narrows
   what it covers as well as what is shown.
@@ -96,7 +115,7 @@ Exit codes:
 // instructionsText is the paragraph an agent needs in order to use eolwhen:
 // what it answers, what the argument is, and what each exit code means for
 // what to do next. README.md quotes it verbatim.
-const instructionsText = "To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per declaration with the days until support ends, 0 on the day it ends and negative after. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the columns; lines that name no version, and anything else the answer needs said in words, are `eolwhen:` lines on stderr.\n"
+const instructionsText = "To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.\n"
 
 type cliArgs struct {
 	showHelp         bool
@@ -201,18 +220,15 @@ func exitCode(fs []timeline.Finding, now time.Time) int {
 func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []string {
 	var out []string
 	for _, u := range collapse(r.Unreadable) {
-		// A file nothing could be read from has no text to quote, and the
-		// path is the whole of what there is to say about it.
-		line := fmt.Sprintf("%s: %s", u.Source, u.Reason)
-		if what := u.What(); what != "" {
-			line = fmt.Sprintf("%s: %s %s", u.Source, what, u.Reason)
-		}
-		if u.more > 0 {
-			line += fmt.Sprintf(" (and %d more)", u.more)
-		}
-		out = append(out, line)
+		out = append(out, complaint(u))
 	}
 	if a.verbose {
+		// A line that follows the newest release is folded the same way: a
+		// repository saying ubuntu-latest in nine workflows is saying one
+		// thing, whether or not the reader asked to hear it.
+		for _, u := range collapse(r.Moving) {
+			out = append(out, complaint(u))
+		}
 		for _, u := range r.Undated {
 			out = append(out, fmt.Sprintf("%s: %s %s has no end-of-life date yet", u.Source, u.Product, u.Cycle))
 		}
@@ -231,17 +247,43 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 	switch {
 	case len(r.Findings) > 0:
 		if len(shown) < len(r.Findings) {
-			out = append(out, fmt.Sprintf("%d more expire further out than %s; drop --within to see them",
-				len(r.Findings)-len(shown), a.withinText))
+			out = append(out, hidden(len(r.Findings)-len(shown), a.withinText))
 		}
 	case len(r.Unreadable) > 0:
 		out = append(out, "nothing in "+dir+" could be placed on the timeline")
 	case len(r.Undated) > 0:
 		out = append(out, "nothing declared in "+dir+" has an end-of-life date yet")
+	case len(r.Moving) > 0:
+		out = append(out, "everything declared in "+dir+" follows the newest release, so there is no date to place")
 	default:
 		out = append(out, "nothing declared in "+dir+" is tracked by endoflife.date")
 	}
 	return out
+}
+
+// hidden words what a window kept out. It counts declarations and not rows,
+// because a row is a release cycle and the same cycle may be declared in
+// several places; what was held back is those places.
+func hidden(n int, within string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 more declaration expires further out than %s; drop --within to see it", within)
+	}
+	return fmt.Sprintf("%d more declarations expire further out than %s; drop --within to see them", n, within)
+}
+
+// complaint words one line that could not be placed, with the count of the
+// further places that said exactly the same thing. A file nothing could be
+// read from has no text to quote, and the path is the whole of what there is
+// to say about it.
+func complaint(u repeated) string {
+	line := fmt.Sprintf("%s: %s", u.Source, u.Reason)
+	if what := u.What(); what != "" {
+		line = fmt.Sprintf("%s: %s %s", u.Source, what, u.Reason)
+	}
+	if u.more > 0 {
+		line += fmt.Sprintf(" (and %d more)", u.more)
+	}
+	return line
 }
 
 func main() {
@@ -345,7 +387,7 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 			Hidden:     len(r.Findings) - len(shown),
 		}
 		if a.verbose {
-			doc.Untracked, doc.Undated = r.Untracked, r.Undated
+			doc.Moving, doc.Untracked, doc.Undated = r.Moving, r.Untracked, r.Undated
 		}
 		fmt.Fprint(stdout, timeline.JSON(doc, now))
 		return exitCode(shown, now)
