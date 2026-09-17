@@ -284,3 +284,57 @@ func TestByImage(t *testing.T) {
 		}
 	}
 }
+
+// TestByPackage covers reaching a product through a package name. Which gem
+// or npm package is which software is upstream's own answer, published as a
+// purl, and the ecosystem is half of it: a name means one thing in one
+// registry and something else in another.
+func TestByPackage(t *testing.T) {
+	c, err := Decode([]byte(`{"result":[
+	  {"name":"rails","aliases":["ruby-on-rails"],"identifiers":[
+	    {"type":"purl","id":"pkg:gem/rails"},
+	    {"type":"purl","id":"pkg:github/rails/rails"},
+	    {"type":"cpe","id":"cpe:2.3:a:rubyonrails:rails"}
+	  ],"releases":[{"name":"6.1","eolFrom":"2024-10-01"}]},
+	  {"name":"angular","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:npm/%40angular/core"}
+	  ],"releases":[]},
+	  {"name":"postgresql","aliases":["pg"],"identifiers":[
+	    {"type":"purl","id":"pkg:docker/library/postgres"}
+	  ],"releases":[]},
+	  {"name":"malformed","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:gem"},
+	    {"type":"purl","id":"npm/lodash"},
+	    {"type":"purl","id":"pkg:npm/%zz"},
+	    {"type":"purl","id":"pkg:npm/"}
+	  ],"releases":[]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	for _, tt := range []struct{ ecosystem, name, want string }{
+		{"gem", "rails", "rails"},
+		{"gem", "Rails", "rails"},
+		{"github", "rails/rails", "rails"},
+		// A purl escapes what would be its own punctuation, and the name is
+		// the decoded one the manifest writes.
+		{"npm", "@angular/core", "angular"},
+		// The ecosystem is half the question. The gem pg is the PostgreSQL
+		// driver, and an alias of the database is the wrong table to answer
+		// it from.
+		{"gem", "pg", ""},
+		{"gem", "ruby-on-rails", ""},
+		{"npm", "rails", ""},
+		// A purl that names no ecosystem, no name, or neither reaches
+		// nothing rather than reaching everything.
+		{"gem", "", ""},
+		{"", "rails", ""},
+		{"npm", "lodash", ""},
+		{"npm", "%zz", ""},
+	} {
+		p, ok := c.ByPackage(tt.ecosystem, tt.name)
+		if ok != (tt.want != "") || p.Name != tt.want {
+			t.Errorf("ByPackage(%q, %q) = %q, %v; want %q", tt.ecosystem, tt.name, p.Name, ok, tt.want)
+		}
+	}
+}

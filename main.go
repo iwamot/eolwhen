@@ -52,10 +52,17 @@ loop over them in the shell.
 Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
-image: of any Compose service, and the runs-on labels and setup-* versions
-in .github/workflows, then matched against endoflife.date. DIR is searched
-to the bottom, skipping directories that hold somebody else's code:
-node_modules, vendor, .venv and the like.
+image: of any Compose service, the gem lines of any Gemfile, and the
+runs-on labels and setup-* versions in .github/workflows, then matched
+against endoflife.date. DIR is searched to the bottom, skipping directories
+that hold somebody else's code: node_modules, vendor, .venv and the like.
+
+A gem reaches a product only through the package names endoflife.date
+publishes, so rails is Ruby on Rails on upstream's word while pg is the
+PostgreSQL driver and reaches nothing. A requirement that pins a range
+rather than a version still names a cycle when the whole range sits inside
+one: ~> 6.1.0 is Rails 6.1. One that does not, or a gem left to the
+lockfile, has no one version to date and is set aside.
 
 An image outside the Docker official library is read through the Docker Hub
 repository endoflife.date publishes for each product, so
@@ -115,7 +122,7 @@ Exit codes:
 // instructionsText is the paragraph an agent needs in order to use eolwhen:
 // what it answers, what the argument is, and what each exit code means for
 // what to do next. README.md quotes it verbatim.
-const instructionsText = "To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.\n"
+const instructionsText = "To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.\n"
 
 type cliArgs struct {
 	showHelp         bool
@@ -233,7 +240,7 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 			out = append(out, fmt.Sprintf("%s: %s %s has no end-of-life date yet", u.Source, u.Product, u.Cycle))
 		}
 		for _, d := range r.Untracked {
-			out = append(out, fmt.Sprintf("%s: %s %s is not tracked by endoflife.date", d.Source, d.Product, d.Version))
+			out = append(out, fmt.Sprintf("%s: %s is not tracked by endoflife.date", d.Source, d.What()))
 		}
 	}
 	// An empty table is worth one line saying why, and the reader wants that

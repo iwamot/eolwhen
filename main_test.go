@@ -596,6 +596,14 @@ const corpusDoc = `{"result":[
     {"type":"purl","id":"pkg:docker/opensearchproject/opensearch"}
   ],"releases":[
     {"name":"1.3","eolFrom":"2023-03-17"}
+  ]},
+  {"name":"rails","aliases":["ruby-on-rails"],"identifiers":[
+    {"type":"purl","id":"pkg:gem/rails"}
+  ],"releases":[
+    {"name":"6.1","eolFrom":"2024-10-01"}
+  ]},
+  {"name":"postgresql","aliases":["pg"],"releases":[
+    {"name":"13","eolFrom":"2025-11-13"}
   ]}
 ]}`
 
@@ -631,6 +639,13 @@ func TestRunCorpus(t *testing.T) {
 		"  search:\n    image: opensearchproject/opensearch:1.3.0\n"+
 		"  sandbox:\n    image: acme/sandbox:0.2.10\n"+
 		"  cache:\n    image: redis:3.2\n")
+	// A manifest: the framework the application sits on, and two gems
+	// endoflife.date publishes no name for — one of which the catalog
+	// answers to as an alias of something else entirely.
+	write("Gemfile", "source \"https://rubygems.org\"\n"+
+		"gem \"rails\", \"~> 6.1.0\"\n"+
+		"gem \"pg\", \">= 1.1\"\n"+
+		"gem \"puma\"\n")
 	write(filepath.Join(".github", "workflows", "ci.yml"), "jobs:\n"+
 		"  lint:\n"+
 		"    runs-on: ubuntu-latest\n"+
@@ -657,6 +672,7 @@ func TestRunCorpus(t *testing.T) {
 	code := report(cliArgs{dir: dir}, c, ds, us, now, &so, &se)
 	want := "" +
 		"-1279d  2023-03-17  opensearch 1.3                             docker-compose.yml:3\n" +
+		" -715d  2024-10-01  rails 6.1                                  Gemfile:2\n" +
 		" -320d  2025-10-31  python 3.9                                 .github/workflows/ci.yml:8\n" +
 		" -258d  2026-01-01  redis <7.2                                 docker-compose.yml:7\n" +
 		"  -16d  2026-08-31  debian 11                                  Dockerfile:2,4\n" +
@@ -666,9 +682,11 @@ func TestRunCorpus(t *testing.T) {
 		t.Errorf("stdout =\n%s\nwant\n%s", so.String(), want)
 	}
 	// What is left over is ubuntu-latest, which follows the newest runner
-	// image on purpose, and acme/sandbox, which endoflife.date publishes no
-	// image for. Neither is a line anyone can act on, so the default answer
-	// says nothing at all.
+	// image on purpose; acme/sandbox, which endoflife.date publishes no
+	// image for; and the gems it publishes no name for, pg among them,
+	// which the catalog would otherwise have answered as PostgreSQL. None
+	// is a line anyone can act on, so the default answer says nothing at
+	// all.
 	if se.String() != "" {
 		t.Errorf("stderr = %q; want empty", se.String())
 	}
