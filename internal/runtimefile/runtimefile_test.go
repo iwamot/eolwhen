@@ -46,6 +46,27 @@ func TestExtractCaught(t *testing.T) {
 			[]decl.Decl{{Product: "go", Version: "1.21.5", Source: decl.Source{File: "go.mod", Line: 3}}}},
 		{"go directive with a comment", "go.mod", "go 1.26 // the oldest supported\n",
 			[]decl.Decl{{Product: "go", Version: "1.26", Source: decl.Source{File: "go.mod", Line: 1}}}},
+		// go.mod separates a directive from its arguments with any run of
+		// spaces or tabs, and go itself reads all of them the same way.
+		{"go directive after a tab", "go.mod", "module example.com/x\n\ngo\t1.16\n",
+			[]decl.Decl{{Product: "go", Version: "1.16", Source: decl.Source{File: "go.mod", Line: 3}}}},
+		{"go directive after several spaces", "go.mod", "go  1.16\n",
+			[]decl.Decl{{Product: "go", Version: "1.16", Source: decl.Source{File: "go.mod", Line: 1}}}},
+		// A comment after the version is nvm's own syntax, and pyenv,
+		// nodenv and rbenv read the first word of a line and ignore the
+		// rest, so the version is what comes first either way.
+		{"trailing comment", ".nvmrc", "18 # legacy runtime\n",
+			[]decl.Decl{{Product: "nodejs", Version: "18", Source: decl.Source{File: ".nvmrc", Line: 1}}}},
+		{"trailing comment with no space", ".nvmrc", "18# legacy runtime\n",
+			[]decl.Decl{{Product: "nodejs", Version: "18", Source: decl.Source{File: ".nvmrc", Line: 1}}}},
+		{"trailing comment on a patch version", ".python-version", "3.9.10 # pinned for the C extension\n",
+			[]decl.Decl{{Product: "python", Version: "3.9.10", Source: decl.Source{File: ".python-version", Line: 1}}}},
+		// An .nvmrc may carry key=value pairs beside the one bare line that
+		// names the version. nvm reads the bare line and nothing else.
+		{"a setting beside the version", ".nvmrc", "flavor=iojs\n18\n",
+			[]decl.Decl{{Product: "nodejs", Version: "18", Source: decl.Source{File: ".nvmrc", Line: 2}}}},
+		{"a setting written with spaces", ".nvmrc", "flavor = iojs\n18\n",
+			[]decl.Decl{{Product: "nodejs", Version: "18", Source: decl.Source{File: ".nvmrc", Line: 2}}}},
 		{"pyenv names several", ".python-version", "3.9.10\n# a comment\n\n3.11.2\n",
 			[]decl.Decl{
 				{Product: "python", Version: "3.9.10", Source: decl.Source{File: ".python-version", Line: 1}},
@@ -88,9 +109,19 @@ func TestExtractReported(t *testing.T) {
 		{"system", ".python-version", "system\n", "defers to whatever is installed"},
 		{"anything else", ".python-version", "anaconda3-2021.05\n", "is not a version"},
 		{"go directive is a word", "go.mod", "go tip\n", "is not a version"},
+		// The comment falls away before the line is read, so what is left
+		// is what gets the reason.
+		{"moving target with a comment", ".nvmrc", "lts/hydrogen # the one we run\n",
+			"names a moving target, not a version"},
 		// A prefix from another file's conventions is not stripped, so this
 		// stays unreadable rather than becoming Node.js 2.6.
 		{"foreign prefix", ".nvmrc", "ruby-2.6\n", "is not a version"},
+		// The key=value syntax is nvm's own, so the same line elsewhere is
+		// a version that cannot be read rather than a setting.
+		{"a pair in a file that has no settings", ".node-version", "flavor=iojs\n", "is not a version"},
+		// Nothing before the = makes it the bare line rather than a pair,
+		// which is how nvm reads it too.
+		{"a pair with no key", ".nvmrc", "=iojs\n", "is not a version"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,6 +147,8 @@ func TestExtractNothing(t *testing.T) {
 		{"unsupported file", "package.json", `{"engines":{"node":"14"}}`},
 		{"empty", ".nvmrc", ""},
 		{"comments only", ".python-version", "# nothing here\n\n"},
+		{"an indented comment", ".nvmrc", "   # nothing here either\n"},
+		{"settings and no version", ".nvmrc", "flavor=iojs\n"},
 		{"go.mod without the directive", "go.mod", "module example.com/x\n"},
 		// "going" starts with go but is not the directive, which needs the
 		// space.

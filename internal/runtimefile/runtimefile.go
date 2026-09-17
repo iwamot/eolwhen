@@ -15,21 +15,29 @@ import (
 	"github.com/iwamot/eolwhen/internal/decl"
 )
 
-// Files maps each supported file name to the product it declares, in the
-// order they are looked for.
+// File is one of the files this package reads, and what reading it takes.
+//
 // Prefixes are the decorations that file's own writers put in front of the
 // version, and only that file's: stripping ruby- inside an .nvmrc would turn
 // a line that makes no sense there into a Node.js version.
-var Files = []struct {
+//
+// Settings says the file's syntax lets a line be a setting rather than a
+// version. An .nvmrc may carry key=value pairs beside the one bare line that
+// names the version, and nvm keeps the two apart.
+type File struct {
 	Name     string
 	Product  string
 	Prefixes []string
-}{
-	{".python-version", "python", []string{"python-"}},
-	{".nvmrc", "nodejs", []string{"node-", "nodejs-"}},
-	{".node-version", "nodejs", []string{"node-", "nodejs-"}},
-	{".ruby-version", "ruby", []string{"ruby-"}},
-	{"go.mod", "go", nil},
+	Settings bool
+}
+
+// Files lists each supported file, in the order they are looked for.
+var Files = []File{
+	{Name: ".python-version", Product: "python", Prefixes: []string{"python-"}},
+	{Name: ".nvmrc", Product: "nodejs", Prefixes: []string{"node-", "nodejs-"}, Settings: true},
+	{Name: ".node-version", Product: "nodejs", Prefixes: []string{"node-", "nodejs-"}},
+	{Name: ".ruby-version", Product: "ruby", Prefixes: []string{"ruby-"}},
+	{Name: "go.mod", Product: "go"},
 }
 
 // lookup finds the entry for a file name.
@@ -63,27 +71,32 @@ func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	if name == "go.mod" {
 		return goMod(path, data)
 	}
-	return versionLines(path, Files[i].Product, Files[i].Prefixes, data)
+	return versionLines(path, Files[i], data)
 }
 
-// versionLines reads a file whose every meaningful line is a version.
-// .python-version may name several versions at once, which pyenv uses to
-// make more than one interpreter available, so every line is kept.
-func versionLines(file, product string, prefixes []string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+// versionLines reads a file whose lines are versions. .python-version may
+// name several at once, which pyenv uses to make more than one interpreter
+// available, so every line is kept, and a line that names a setting instead
+// is passed over where the file's syntax has them.
+func versionLines(path string, f File, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	var ds []decl.Decl
 	var us []decl.Unreadable
 	for i, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
+		line := content(raw)
+		if line == "" || (f.Settings && setting(line)) {
 			continue
 		}
-		src := decl.Source{File: file, Line: i + 1}
-		v := normalize(line, prefixes)
+		// pyenv, nodenv and rbenv read the first word of a line and ignore
+		// whatever follows it, so a second word falls away here as a
+		// trailing comment already has.
+		text := strings.Fields(line)[0]
+		src := decl.Source{File: path, Line: i + 1}
+		v := normalize(text, f.Prefixes)
 		if !looksLikeVersion(v) {
-			us = append(us, decl.Unreadable{Source: src, Product: product, Text: line, Reason: reason(line)})
+			us = append(us, decl.Unreadable{Source: src, Product: f.Product, Text: text, Reason: reason(text)})
 			continue
 		}
-		ds = append(ds, decl.Decl{Product: product, Version: v, Source: src})
+		ds = append(ds, decl.Decl{Product: f.Product, Version: v, Source: src})
 	}
 	return ds, us
 }
@@ -94,22 +107,39 @@ func versionLines(file, product string, prefixes []string, data []byte) ([]decl.
 // window matters.
 func goMod(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	for i, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(raw)
-		rest, ok := strings.CutPrefix(line, "go ")
-		if !ok {
+		// The directive is a word and its arguments, separated by any run of
+		// spaces or tabs, so the version is the second word rather than
+		// whatever follows a single space. What comes after it is a comment.
+		fields := strings.Fields(raw)
+		if len(fields) < 2 || fields[0] != "go" {
 			continue
 		}
-		v := strings.TrimSpace(rest)
-		if idx := strings.Index(v, "//"); idx >= 0 {
-			v = strings.TrimSpace(v[:idx])
-		}
+		v := fields[1]
 		src := decl.Source{File: file, Line: i + 1}
 		if !looksLikeVersion(v) {
-			return nil, []decl.Unreadable{{Source: src, Product: "go", Text: line, Reason: reason(v)}}
+			return nil, []decl.Unreadable{{Source: src, Product: "go", Text: v, Reason: reason(v)}}
 		}
 		return []decl.Decl{{Product: "go", Version: v, Source: src}}, nil
 	}
 	return nil, nil
+}
+
+// content is what a line says once its comment is off. nvm reads an .nvmrc
+// that way — a # starts a comment wherever it appears — while pyenv, nodenv
+// and rbenv read the first word of a line and ignore the rest of it, so a
+// trailing comment falls away under either reading. An empty result is a
+// line that says nothing, comment or not.
+func content(line string) string {
+	text, _, _ := strings.Cut(line, "#")
+	return strings.TrimSpace(text)
+}
+
+// setting reports whether a line is one of the key=value pairs an .nvmrc may
+// carry beside its version. A pair names something other than a version — the
+// version is the bare line — so there is nothing in it to look up. A line
+// with nothing before the = is not a pair, and nvm reads it as the bare line.
+func setting(line string) bool {
+	return strings.Index(line, "=") > 0
 }
 
 // normalize strips the decorations these files carry around a version: the

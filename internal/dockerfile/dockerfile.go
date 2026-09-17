@@ -1,5 +1,5 @@
-// Package dockerfile reads the FROM lines of a Dockerfile. What an image
-// reference names is the image package's answer; this one finds the
+// Package dockerfile reads the FROM instructions of a Dockerfile. What an
+// image reference names is the image package's answer; this one finds the
 // references and keeps track of the stages.
 package dockerfile
 
@@ -25,8 +25,8 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	// images, so they are collected as they are declared and skipped when
 	// they come back around.
 	stages := map[string]bool{}
-	for i, raw := range strings.Split(string(data), "\n") {
-		ref, stage, ok := from(raw)
+	for _, in := range instructions(data) {
+		ref, stage, ok := from(in.text)
 		if !ok {
 			continue
 		}
@@ -36,7 +36,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 		if stages[strings.ToLower(ref)] || image.Skip(ref) {
 			continue
 		}
-		src := decl.Source{File: file, Line: i + 1}
+		src := decl.Source{File: file, Line: in.line}
 		product, version, reason := image.Read(ref)
 		if reason != "" {
 			us = append(us, decl.Unreadable{Source: src, Text: ref, Reason: reason})
@@ -47,11 +47,11 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	return ds, us
 }
 
-// from picks the image reference and the stage name out of a FROM line, or
-// reports that the line is not one. The --platform flag is dropped: it says
-// where the image runs, not which image it is.
-func from(line string) (ref, stage string, ok bool) {
-	fields := strings.Fields(strings.TrimSpace(line))
+// from picks the image reference and the stage name out of a FROM
+// instruction, or reports that the instruction is not one. The --platform
+// flag is dropped: it says where the image runs, not which image it is.
+func from(text string) (ref, stage string, ok bool) {
+	fields := strings.Fields(text)
 	if len(fields) < 2 || !strings.EqualFold(fields[0], "FROM") {
 		return "", "", false
 	}

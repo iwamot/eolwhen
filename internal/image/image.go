@@ -10,16 +10,21 @@ package image
 
 import "strings"
 
-// officialPrefixes are the ways of writing that an image comes from the
-// Docker official library: the bare shorthand, the library/ form it stands
-// for, and the registries that mirror that library under a path of their
-// own. Each is listed because it was checked, not because it matched a
-// pattern; a registry not on this list may put anything under any name.
-var officialPrefixes = []string{
-	"library/",
-	"docker.io/library/",
-	"index.docker.io/library/",
-	"registry-1.docker.io/library/",
+// hubHosts are the registry hosts that serve Docker Hub. A name written
+// under one of them follows Docker Hub's own rule that a name with no
+// namespace means the official library, so docker.io/python is
+// docker.io/library/python.
+var hubHosts = []string{
+	"docker.io/",
+	"index.docker.io/",
+	"registry-1.docker.io/",
+}
+
+// mirrorPrefixes are the registries that carry a copy of the official
+// library under a path of their own. Each is listed because it was checked,
+// not because it matched a pattern; a registry not on this list may put
+// anything under any name, and only this exact path is the library.
+var mirrorPrefixes = []string{
 	"public.ecr.aws/docker/library/",
 }
 
@@ -68,15 +73,32 @@ func split(ref string) (name, tag, digest string) {
 }
 
 // officialName reports whether an image name is a Docker official image, and
-// returns the software it names. Anything left carrying a slash sits in a
-// namespace somebody else controls.
+// returns the software it names. The host and the library namespace, both of
+// which a reference may leave out, are taken off in turn; anything left
+// carrying a slash sits in a namespace somebody else controls.
 func officialName(name string) (string, bool) {
-	for _, prefix := range officialPrefixes {
+	for _, prefix := range mirrorPrefixes {
 		if rest, ok := strings.CutPrefix(name, prefix); ok {
+			return single(rest)
+		}
+	}
+	for _, host := range hubHosts {
+		if rest, ok := strings.CutPrefix(name, host); ok {
 			name = rest
 			break
 		}
 	}
+	// The namespace is written out in library/python and left out in
+	// python; both name the same image.
+	if rest, ok := strings.CutPrefix(name, "library/"); ok {
+		name = rest
+	}
+	return single(name)
+}
+
+// single reports whether what is left of a name is one segment, which is
+// what an official image name is once its namespace is off.
+func single(name string) (string, bool) {
 	if name == "" || strings.Contains(name, "/") {
 		return "", false
 	}
