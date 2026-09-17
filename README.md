@@ -76,6 +76,8 @@ A tag that names only a major line — `redis:7`, or `python-version: 3` — is 
 
 A version reaches its release cycle by dot-separated segments, not by string prefix: `3.10.2` reaches Python's 3.10 cycle and never its 3.1 cycle, which expired in 2012. A tag that names a codename instead of a number is resolved through the codename endoflife.date publishes, so `FROM debian:buster` reads as Debian 10 and `FROM ubuntu:jammy` as Ubuntu 22.04.
 
+A cycle reached that way still gets no row when endoflife.date has given it no end date. Nothing is wrong with the line and there is nothing to go and change — support has not been dated yet, which is what a recent release looks like — so it is set aside without a word, like the software the catalog does not track, and `--verbose` accounts for both.
+
 ## Using it
 
 Both halves of the timeline matter, so both are printed. What has expired needs work now; what is coming needs a date in the calendar.
@@ -95,12 +97,22 @@ eolwhen: 2 more expire further out than 2w; drop --within to see them
 
 Only rows go to stdout. Anything the answer needs a sentence for — a line that names no version, a directory that declares nothing, a window that hid something — is an `eolwhen:` line on stderr, so `awk` over stdout reads rows and nothing else.
 
-A directory that declares nothing says so and exits 0. It is not an error, and endoflife.date is not read at all on that path:
+An empty table is one line on stderr, and that line is the answer. A directory can come out empty without anything being wrong, and the line says which one it is: one running current versions, where no cycle it declares has been given an end date yet; one that declares nothing at all, which is answered without reading endoflife.date; and one whose every declaration names software endoflife.date has no policy for. All three exit 0, because none of them is an error.
 
 ```
+$ eolwhen ../a-repo-kept-up-to-date
+eolwhen: nothing declared in ../a-repo-kept-up-to-date has an end-of-life date yet
+
 $ eolwhen /tmp/empty
 eolwhen: no version declarations in /tmp/empty
+
+$ eolwhen ../a-repo-of-tools
+eolwhen: nothing declared in ../a-repo-of-tools is tracked by endoflife.date
 ```
+
+A directory whose every line named no version comes out empty too, and there the complaints are the answer: they are printed one per distinct complaint, and the closing line says only that nothing in the directory could be placed on the timeline.
+
+`--verbose` names the declarations a line like that stands for. They are quiet by default because a repository doing everything right would otherwise spend a line on every file it keeps up to date, which is noise on the run that has an answer.
 
 The exit code is the answer, so a check can be one line. This one fails the
 job when something has already expired, passes when only future dates were
@@ -111,7 +123,7 @@ unreachable endoflife.date:
 eolwhen || [ $? = 2 ]
 ```
 
-The same answer as JSON. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, and `untracked` is filled when `--verbose` asks for the declarations naming software endoflife.date has no policy for.
+The same answer as JSON. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, and `untracked` and `undated` are filled when `--verbose` asks for the declarations that had no date to place — software endoflife.date has no policy for, and cycles it has not dated yet.
 
 ```
 $ eolwhen --json
@@ -136,7 +148,8 @@ $ eolwhen --json
     }
   ],
   "hidden": 0,
-  "untracked": []
+  "untracked": [],
+  "undated": []
 }
 ```
 
@@ -147,7 +160,7 @@ To cover several directories, loop over them in the shell. `eolwhen` reads one.
 `eolwhen --instructions` prints the paragraph to drop into `CLAUDE.md`, `AGENTS.md`, or whichever file your agent reads:
 
 ```markdown
-To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per declaration with the days until support ends, 0 on the day it ends and negative after. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the columns; lines that name no version, and anything else the answer needs said in words, are `eolwhen:` lines on stderr.
+To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per declaration with the days until support ends, 0 on the day it ends and negative after. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the columns; lines that name no version, and anything else the answer needs said in words, are `eolwhen:` lines on stderr.
 ```
 
 ## Reference
@@ -179,15 +192,19 @@ node_modules, vendor, .venv and the like.
 Every expired declaration is printed, oldest first, together with the ones
 still ahead. A line that names no version — lts/hydrogen, ubuntu-latest, a
 digest-pinned FROM, an image outside the Docker official library — is
-reported on stderr rather than guessed at, once per distinct complaint.
+reported on stderr rather than guessed at, once per distinct complaint. A
+declaration with no date to place — software endoflife.date does not track,
+or a cycle it has not dated yet — is set aside without a word, and an empty
+table is one line on stderr saying which of these the directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
   --json          print JSON instead of the table, with the unreadable lines
                   in the document
-  --verbose       also say which declarations name software endoflife.date
-                  does not track, which is most of what a tool list holds
+  --verbose       also say which declarations have no date to place: software
+                  endoflife.date does not track, and cycles it has not dated
+                  yet
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file

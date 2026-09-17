@@ -60,15 +60,19 @@ node_modules, vendor, .venv and the like.
 Every expired declaration is printed, oldest first, together with the ones
 still ahead. A line that names no version — lts/hydrogen, ubuntu-latest, a
 digest-pinned FROM, an image outside the Docker official library — is
-reported on stderr rather than guessed at, once per distinct complaint.
+reported on stderr rather than guessed at, once per distinct complaint. A
+declaration with no date to place — software endoflife.date does not track,
+or a cycle it has not dated yet — is set aside without a word, and an empty
+table is one line on stderr saying which of these the directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
   --json          print JSON instead of the table, with the unreadable lines
                   in the document
-  --verbose       also say which declarations name software endoflife.date
-                  does not track, which is most of what a tool list holds
+  --verbose       also say which declarations have no date to place: software
+                  endoflife.date does not track, and cycles it has not dated
+                  yet
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -92,7 +96,7 @@ Exit codes:
 // instructionsText is the paragraph an agent needs in order to use eolwhen:
 // what it answers, what the argument is, and what each exit code means for
 // what to do next. README.md quotes it verbatim.
-const instructionsText = "To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per declaration with the days until support ends, 0 on the day it ends and negative after. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the columns; lines that name no version, and anything else the answer needs said in words, are `eolwhen:` lines on stderr.\n"
+const instructionsText = "To find out whether the runtimes and base images a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per declaration with the days until support ends, 0 on the day it ends and negative after. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the columns; lines that name no version, and anything else the answer needs said in words, are `eolwhen:` lines on stderr.\n"
 
 type cliArgs struct {
 	showHelp         bool
@@ -192,9 +196,8 @@ func exitCode(fs []timeline.Finding, now time.Time) int {
 }
 
 // notes lists what the answer still owes the caller in words: the lines that
-// were read but could not be placed on the timeline, why an empty table is
-// empty, and what a window hid. They go to stderr so stdout carries rows
-// alone.
+// could not be read, why an empty table is empty, and what a window hid.
+// They go to stderr so stdout carries rows alone.
 func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []string {
 	var out []string
 	for _, u := range collapse(r.Unreadable) {
@@ -210,21 +213,33 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 		out = append(out, line)
 	}
 	if a.verbose {
+		for _, u := range r.Undated {
+			out = append(out, fmt.Sprintf("%s: %s %s has no end-of-life date yet", u.Source, u.Product, u.Cycle))
+		}
 		for _, d := range r.Untracked {
 			out = append(out, fmt.Sprintf("%s: %s %s is not tracked by endoflife.date", d.Source, d.Product, d.Version))
 		}
 	}
+	// An empty table is worth one line saying why, and the reader wants that
+	// line to answer the question they ran the tool with. Declarations that
+	// have no date to place mean there is nothing to do; a line that could
+	// not be read means the answer is short of what the directory declares,
+	// and the complaints above say which lines to go and look at.
+	//
+	// Declarations were read on every path here, because run returns earlier
+	// when there are none.
 	switch {
-	// Declarations were read — run returns earlier when there are none — so
-	// an empty timeline with nothing to say about it means every one of them
-	// named software endoflife.date does not track.
-	case len(r.Findings) == 0 && len(r.Unreadable) == 0:
-		out = append(out, "nothing endoflife.date tracks was declared in "+dir)
-	case len(r.Findings) == 0:
-		out = append(out, "nothing could be placed on the timeline")
-	case len(shown) < len(r.Findings):
-		out = append(out, fmt.Sprintf("%d more expire further out than %s; drop --within to see them",
-			len(r.Findings)-len(shown), a.withinText))
+	case len(r.Findings) > 0:
+		if len(shown) < len(r.Findings) {
+			out = append(out, fmt.Sprintf("%d more expire further out than %s; drop --within to see them",
+				len(r.Findings)-len(shown), a.withinText))
+		}
+	case len(r.Unreadable) > 0:
+		out = append(out, "nothing in "+dir+" could be placed on the timeline")
+	case len(r.Undated) > 0:
+		out = append(out, "nothing declared in "+dir+" has an end-of-life date yet")
+	default:
+		out = append(out, "nothing declared in "+dir+" is tracked by endoflife.date")
 	}
 	return out
 }
@@ -330,7 +345,7 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 			Hidden:     len(r.Findings) - len(shown),
 		}
 		if a.verbose {
-			doc.Untracked = r.Untracked
+			doc.Untracked, doc.Undated = r.Untracked, r.Undated
 		}
 		fmt.Fprint(stdout, timeline.JSON(doc, now))
 		return exitCode(shown, now)

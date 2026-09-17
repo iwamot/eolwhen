@@ -24,6 +24,17 @@ type Finding struct {
 // What names the software and cycle, as one column.
 func (f Finding) What() string { return f.Product + " " + f.Cycle }
 
+// Undated is a declaration that reached a release cycle endoflife.date has
+// given no end date. The line was read and the cycle was found; only the
+// date is missing, because support has not been dated yet. That is what a
+// directory running current versions looks like, so it is nothing to do and
+// only --verbose says which lines it was.
+type Undated struct {
+	Product string
+	Cycle   string
+	Source  decl.Source
+}
+
 // Days is how many days away the end of support is, as of now: negative
 // once it has passed, positive while it is ahead.
 //
@@ -143,9 +154,12 @@ type Report struct {
 	Unreadable []decl.Unreadable
 	// Hidden is how many findings a window kept out of Findings.
 	Hidden int
-	// Untracked is filled only when it was asked for, since a tool list
-	// names plenty of software with no end-of-life policy at all.
+	// Untracked and Undated are filled only when they were asked for. Both
+	// are declarations with no date to place — software endoflife.date has
+	// no policy for, and cycles it has not dated yet — and a tool list holds
+	// enough of the first to bury the answer.
 	Untracked []decl.Decl
+	Undated   []Undated
 }
 
 type document struct {
@@ -154,12 +168,21 @@ type document struct {
 	Unreadable []unreadable `json:"unreadable"`
 	Hidden     int          `json:"hidden"`
 	Untracked  []untracked  `json:"untracked"`
+	Undated    []undated    `json:"undated"`
 }
 
 type untracked struct {
 	Source  string `json:"source"`
 	Product string `json:"product"`
 	Version string `json:"version"`
+}
+
+// undated names the cycle the version reached, which is the line to watch
+// for a date, rather than the version as it was written.
+type undated struct {
+	Source  string `json:"source"`
+	Product string `json:"product"`
+	Cycle   string `json:"cycle"`
 }
 
 type entry struct {
@@ -191,6 +214,7 @@ func JSON(r Report, now time.Time) string {
 		Unreadable: []unreadable{},
 		Hidden:     r.Hidden,
 		Untracked:  []untracked{},
+		Undated:    []undated{},
 	}
 	for _, f := range r.Findings {
 		doc.Findings = append(doc.Findings, entry{
@@ -215,6 +239,13 @@ func JSON(r Report, now time.Time) string {
 			Source:  d.Source.String(),
 			Product: d.Product,
 			Version: d.Version,
+		})
+	}
+	for _, u := range r.Undated {
+		doc.Undated = append(doc.Undated, undated{
+			Source:  u.Source.String(),
+			Product: u.Product,
+			Cycle:   u.Cycle,
 		})
 	}
 	// The document holds only strings, numbers, and booleans, so Marshal

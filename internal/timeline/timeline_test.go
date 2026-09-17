@@ -193,7 +193,8 @@ func TestJSON(t *testing.T) {
 	fs := []Finding{{Product: "python", Cycle: "2.7", EOL: at("2020-01-01"), Source: decl.Source{File: ".python-version", Line: 1}}}
 	us := []decl.Unreadable{{Source: decl.Source{File: ".nvmrc", Line: 1}, Product: "nodejs", Text: "lts/hydrogen", Reason: "names a moving target, not a version"}}
 	got := JSON(Report{Directory: "some/dir", Findings: fs, Unreadable: us, Hidden: 2,
-		Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, now)
+		Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}},
+		Undated:   []Undated{{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}}}, now)
 	for _, want := range []string{
 		`"directory": "some/dir"`,
 		`"product": "python"`,
@@ -208,15 +209,18 @@ func TestJSON(t *testing.T) {
 		// rather than sentences on stderr.
 		`"hidden": 2`,
 		`"product": "biome"`,
+		`"source": "go.mod:9"`,
+		`"cycle": "1.26"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("JSON is missing %s:\n%s", want, got)
 		}
 	}
 	// Every list is always an array, so a caller can index without a nil
-	// check, and untracked is empty unless it was asked for.
+	// check, and the two --verbose lists are empty unless they were asked
+	// for.
 	empty := JSON(Report{Directory: "."}, now)
-	for _, want := range []string{`"findings": []`, `"unreadable": []`, `"untracked": []`, `"hidden": 0`} {
+	for _, want := range []string{`"findings": []`, `"unreadable": []`, `"untracked": []`, `"undated": []`, `"hidden": 0`} {
 		if !strings.Contains(empty, want) {
 			t.Errorf("JSON with nothing is missing %s:\n%s", want, empty)
 		}
