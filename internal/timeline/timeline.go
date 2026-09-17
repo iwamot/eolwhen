@@ -5,7 +5,9 @@ package timeline
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,7 +63,8 @@ func Past(now time.Time, f Finding) bool { return Days(now, f) <= 0 }
 // Sort orders the list by the day itself, oldest first, so the most overdue
 // reads at the top and the timeline runs in one direction. Findings sharing
 // a day are ordered by what they name, then by where they were found, so the
-// output does not move between runs.
+// output does not move between runs — and so the places a row lists read
+// down the directory in one direction too.
 //
 // Where they were found is compared as a path and then as a number, because
 // a Dockerfile that names the same image in four stages would otherwise put
@@ -121,17 +124,26 @@ func Distance(now time.Time, f Finding) string {
 }
 
 // Table renders the findings as aligned columns: the signed distance in
-// days, the day itself, what it names, and where it was declared. There is
-// no header, so every line of stdout is a finding and awk can read the
-// columns without skipping one.
+// days, the day itself, what it names, and every place it was declared.
+// There is no header, so every line of stdout is a finding and awk can read
+// the columns without skipping one.
+//
+// One row is one release cycle, however many lines declared it. What the
+// reader has to deal with is that Debian 11 stops getting security fixes,
+// and a multi-stage Dockerfile naming the same base three times is one thing
+// to deal with and not three; the places follow as the list of what to go
+// and change.
 func Table(fs []Finding, now time.Time) string {
 	rows := make([][3]string, 0, len(fs))
-	for _, f := range fs {
+	var where []string
+	for _, group := range fold(fs) {
+		f := group[0]
 		rows = append(rows, [3]string{
 			Distance(now, f),
 			f.EOL.Format(time.DateOnly),
 			f.What(),
 		})
+		where = append(where, sources(group))
 	}
 	var width [3]int
 	for _, r := range rows {
@@ -142,9 +154,61 @@ func Table(fs []Finding, now time.Time) string {
 	var b strings.Builder
 	for i, r := range rows {
 		fmt.Fprintf(&b, "%*s  %-*s  %-*s  %s\n",
-			width[0], r[0], width[1], r[1], width[2], r[2], fs[i].Source)
+			width[0], r[0], width[1], r[1], width[2], r[2], where[i])
 	}
 	return b.String()
+}
+
+// fold groups the findings that name the same release cycle, keeping the
+// order they were sorted into: the first of a cycle is where its row goes.
+// A cycle settles its own end date, so everything a group holds shares a
+// day as well as a name.
+func fold(fs []Finding) [][]Finding {
+	var out [][]Finding
+	at := map[string]int{}
+	for _, f := range fs {
+		k := f.What()
+		if i, seen := at[k]; seen {
+			out[i] = append(out[i], f)
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, []Finding{f})
+	}
+	return out
+}
+
+// sources renders where a cycle was declared: every place, in the order they
+// were sorted into, with a file named once however many of its lines
+// declared it. A multi-stage Dockerfile reads as Dockerfile:2,22,34 rather
+// than three times over, which is what keeps the list short enough to be
+// read where it matters most — the repository declaring one base image
+// everywhere.
+func sources(fs []Finding) string {
+	var files []string
+	lines := map[string][]string{}
+	for _, f := range fs {
+		file := f.Source.File
+		if _, seen := lines[file]; !seen {
+			files = append(files, file)
+		}
+		line := strconv.Itoa(f.Source.Line)
+		// A file with no meaningful line to point at is named alone, and a
+		// line declaring the same cycle twice is still the one place.
+		if f.Source.Line == 0 || slices.Contains(lines[file], line) {
+			continue
+		}
+		lines[file] = append(lines[file], line)
+	}
+	var out []string
+	for _, file := range files {
+		if len(lines[file]) == 0 {
+			out = append(out, file)
+			continue
+		}
+		out = append(out, file+":"+strings.Join(lines[file], ","))
+	}
+	return strings.Join(out, ", ")
 }
 
 // Report is one run's whole answer, as the document renders it.
@@ -154,6 +218,9 @@ type Report struct {
 	Unreadable []decl.Unreadable
 	// Hidden is how many findings a window kept out of Findings.
 	Hidden int
+	// Moving are the lines that follow the newest release by design. Like
+	// Untracked and Undated, they are filled only when they were asked for.
+	Moving []decl.Unreadable
 	// Untracked and Undated are filled only when they were asked for. Both
 	// are declarations with no date to place — software endoflife.date has
 	// no policy for, and cycles it has not dated yet — and a tool list holds
@@ -167,6 +234,7 @@ type document struct {
 	Findings   []entry      `json:"findings"`
 	Unreadable []unreadable `json:"unreadable"`
 	Hidden     int          `json:"hidden"`
+	Moving     []unreadable `json:"moving"`
 	Untracked  []untracked  `json:"untracked"`
 	Undated    []undated    `json:"undated"`
 }
@@ -204,6 +272,15 @@ type unreadable struct {
 	Reason  string `json:"reason"`
 }
 
+func lineOf(u decl.Unreadable) unreadable {
+	return unreadable{
+		Source:  u.Source.String(),
+		Product: u.Product,
+		Text:    u.Text,
+		Reason:  u.Reason,
+	}
+}
+
 // JSON renders the same answer as one document. Everything the table needs
 // said in words on stderr is a field here instead, so a caller reading the
 // document is owed nothing it cannot see.
@@ -213,6 +290,7 @@ func JSON(r Report, now time.Time) string {
 		Findings:   []entry{},
 		Unreadable: []unreadable{},
 		Hidden:     r.Hidden,
+		Moving:     []unreadable{},
 		Untracked:  []untracked{},
 		Undated:    []undated{},
 	}
@@ -227,12 +305,10 @@ func JSON(r Report, now time.Time) string {
 		})
 	}
 	for _, u := range r.Unreadable {
-		doc.Unreadable = append(doc.Unreadable, unreadable{
-			Source:  u.Source.String(),
-			Product: u.Product,
-			Text:    u.Text,
-			Reason:  u.Reason,
-		})
+		doc.Unreadable = append(doc.Unreadable, lineOf(u))
+	}
+	for _, u := range r.Moving {
+		doc.Moving = append(doc.Moving, lineOf(u))
 	}
 	for _, d := range r.Untracked {
 		doc.Untracked = append(doc.Untracked, untracked{

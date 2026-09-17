@@ -95,3 +95,53 @@ func TestCovering(t *testing.T) {
 		})
 	}
 }
+
+func TestOldest(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		cycles []string
+		want   string
+	}{
+		// Compared as numbers: 2.7 is older than 3.1, which is older than
+		// 3.10, whatever the text says.
+		{"python", []string{"3.13", "3.1", "2.7"}, "2.7"},
+		{"a two-part version", []string{"22.04", "14.10", "14.04"}, "14.04"},
+		{"cycles named with words have no oldest", []string{"macos-15", "windows-2025"}, ""},
+		// A product that numbers some of its cycles is ordered by those.
+		{"a mixture", []string{"next", "8.0", "7.4"}, "7.4"},
+		{"nothing at all", nil, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := Oldest(tt.cycles)
+			if ok != (tt.want != "") || got != tt.want {
+				t.Errorf("Oldest(%v) = %q, %v; want %q", tt.cycles, got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestBefore(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"3.2", "4.0", true},
+		{"3.2.1", "4.0", true},
+		{"2.7", "3.1", true},
+		{"3.1", "3.10", true},
+		{"3.10", "3.1", false},
+		{"4.0", "4.0", false},
+		// A version that runs out where the cycle goes on covers it rather
+		// than predating it.
+		{"1.2", "1.2.3", false},
+		{"14.04", "14.10", true},
+		// Nothing spelled with a word is compared at all.
+		{"bookworm", "4.0", false},
+		{"4.0", "macos-15", false},
+		{"", "4.0", false},
+	} {
+		if got := Before(tt.a, tt.b); got != tt.want {
+			t.Errorf("Before(%q, %q) = %v; want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}

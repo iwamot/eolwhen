@@ -2,7 +2,10 @@
 // product has.
 package cycle
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Match returns the longest cycle whose dot-separated segments are a prefix
 // of v's.
@@ -84,4 +87,64 @@ func Covering(v string, cycles []string) int {
 		}
 	}
 	return n
+}
+
+// Oldest is the lowest cycle a product numbers, compared as numbers rather
+// than as text so that 2.7 comes before 3.10. A product that names its
+// cycles with words — the runner images name theirs macos-15 — has no oldest
+// of this kind, and neither has one with no cycles at all.
+func Oldest(cycles []string) (string, bool) {
+	oldest, best := "", []int(nil)
+	for _, c := range cycles {
+		got, ok := numbers(c)
+		if !ok {
+			continue
+		}
+		if best == nil || less(got, best) {
+			oldest, best = c, got
+		}
+	}
+	return oldest, best != nil
+}
+
+// Before reports whether a is a lower version than b, segment by segment and
+// as numbers. Anything either side spells with a word is not compared at
+// all, and a version that only runs out — 1.2 against 1.2.3 — is not before
+// it: it covers it.
+func Before(a, b string) bool {
+	x, okA := numbers(a)
+	y, okB := numbers(b)
+	if !okA || !okB {
+		return false
+	}
+	return less(x, y)
+}
+
+func less(x, y []int) bool {
+	for i := range min(len(x), len(y)) {
+		if x[i] != y[i] {
+			return x[i] < y[i]
+		}
+	}
+	return false
+}
+
+// numbers reads a version as the numbers it is made of. A segment that is
+// not a number makes the whole of it unreadable this way, which is what
+// keeps a codename or a runner label out of an ordering that would mean
+// nothing for it.
+func numbers(s string) ([]int, bool) {
+	parts := segments(s)
+	if len(parts) == 0 {
+		return nil, false
+	}
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
 }

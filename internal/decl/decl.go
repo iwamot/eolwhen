@@ -42,11 +42,19 @@ func (s Source) String() string {
 // runner label does. Carrying it is what lets a line about software
 // endoflife.date does not track be set aside like any other declaration of
 // it, instead of being reported because its version was a word.
+//
+// Moving says the line names no fixed version by design: `:latest`,
+// `ubuntu-latest`, a tag naming only a major line, a tool pinned to
+// `stable`. Those are not lines to go and look at — they follow the newest
+// release on purpose, and the reason says so — so they are set aside like
+// software the catalog does not track, and --verbose accounts for them.
+// Reporting them was what filled the output with lines nobody could act on.
 type Unreadable struct {
 	Source  Source
 	Product string
 	Text    string
 	Reason  string
+	Moving  bool
 }
 
 // What is the line as the reader sees it: the software, when it is named

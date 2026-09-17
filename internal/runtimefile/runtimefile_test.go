@@ -94,6 +94,8 @@ func TestExtractCaught(t *testing.T) {
 // TestExtractReported covers the lines that name something other than a
 // version. Guessing at these is what would put a wrong date on the timeline,
 // so each is handed back with a reason instead.
+//
+// nvm's lts/<codename> is not among them: see TestExtractCodename.
 func TestExtractReported(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -101,8 +103,9 @@ func TestExtractReported(t *testing.T) {
 		data   string
 		reason string
 	}{
-		{"moving target", ".nvmrc", "lts/hydrogen\n", "names a moving target, not a version"},
 		{"bare lts", ".nvmrc", "lts\n", "names a moving target, not a version"},
+		{"the newest lts", ".nvmrc", "lts/*\n", "names a moving target, not a version"},
+		{"lts/latest", ".nvmrc", "lts/latest\n", "names a moving target, not a version"},
 		{"node means newest", ".nvmrc", "node\n", "names a moving target, not a version"},
 		{"latest", ".node-version", "latest\n", "names a moving target, not a version"},
 		{"stable", ".ruby-version", "stable\n", "names a moving target, not a version"},
@@ -111,7 +114,7 @@ func TestExtractReported(t *testing.T) {
 		{"go directive is a word", "go.mod", "go tip\n", "is not a version"},
 		// The comment falls away before the line is read, so what is left
 		// is what gets the reason.
-		{"moving target with a comment", ".nvmrc", "lts/hydrogen # the one we run\n",
+		{"moving target with a comment", ".nvmrc", "lts # the one we run\n",
 			"names a moving target, not a version"},
 		// A prefix from another file's conventions is not stripped, so this
 		// stays unreadable rather than becoming Node.js 2.6.
@@ -158,6 +161,28 @@ func TestExtractNothing(t *testing.T) {
 			ds, us := Extract(tt.file, []byte(tt.data))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
+		})
+	}
+}
+
+// TestExtractCodename: lts/hydrogen names Node.js 18 as surely as 18 does,
+// because nvm writes there the codename endoflife.date publishes for that
+// cycle. The word is handed on for the catalog to match, like the codename
+// an image tag carries; lts/* and lts/latest are the newest of them and stay
+// moving targets.
+func TestExtractCodename(t *testing.T) {
+	for _, tt := range []struct{ name, data, version string }{
+		{"an lts codename", "lts/hydrogen\n", "hydrogen"},
+		{"with a comment after it", "lts/iron # the one we run\n", "iron"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us := Extract(".nvmrc", []byte(tt.data))
+			if len(us) != 0 {
+				t.Fatalf("unreadable = %+v; want none", us)
+			}
+			if len(ds) != 1 || ds[0].Product != "nodejs" || ds[0].Version != tt.version {
+				t.Fatalf("Extract = %+v; want nodejs %s", ds, tt.version)
 			}
 		})
 	}

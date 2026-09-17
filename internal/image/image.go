@@ -1,11 +1,13 @@
 // Package image reads a container image reference.
 //
-// Only Docker official images are read. An official image name is the
-// software itself — library/python is Python, library/postgres is PostgreSQL
-// — because that namespace is a short curated list rather than something
-// anyone can publish into. An image under any other namespace may be named
-// anything at all, so ghcr.io/acme/python is reported rather than read as
-// Python.
+// An official image name is the software itself — library/python is Python,
+// library/postgres is PostgreSQL — because that namespace is a short curated
+// list rather than something anyone can publish into. Any other name is
+// handed on as written, for the catalog to recognize or not: endoflife.date
+// publishes the Docker Hub repository each product ships under, so
+// opensearchproject/opensearch is OpenSearch on upstream's word rather than
+// on the strength of how the name reads. Nothing here guesses, and
+// ghcr.io/acme/python is still not Python.
 package image
 
 import "strings"
@@ -36,26 +38,99 @@ func Skip(ref string) bool {
 	return name == "scratch"
 }
 
-// Read turns a reference into the software and version it names. reason is
-// empty when it could be read, and otherwise says why not, in words that
-// name what is missing.
-func Read(ref string) (product, version, reason string) {
-	if strings.Contains(ref, "$") {
-		return "", "", "takes its version from a variable"
-	}
+// Named is one piece of software a reference names, with the version it
+// names for it. An empty Product means the version names the software as
+// well: a distribution codename does, and the catalog resolves it to both.
+type Named struct {
+	Product string
+	Version string
+}
+
+// Read turns a reference into what it declares. reason is empty when the
+// reference could be read, and otherwise says why not, in words that name
+// what is missing; moving says the reference asks for the newest release
+// rather than a version, which is a reason there was never a date rather
+// than a line to go and look at.
+//
+// The product of a name outside the official library is that name, written
+// the way Docker Hub means it, for the catalog to look up among the images
+// its products publish. Whether anything is known about it is the catalog's
+// answer and not this package's.
+func Read(ref string) (ns []Named, reason string, moving bool) {
 	name, tag, digest := split(ref)
+	if strings.Contains(ref, "$") {
+		// Which half the variable is in is what the reader has to go and
+		// look at, and a tag that is a version of something unknown is not
+		// the same complaint as a tag nobody can read.
+		if strings.Contains(name, "$") {
+			return nil, "takes its image from a variable, so its contents are not known here", false
+		}
+		return nil, "takes its version from a variable", false
+	}
 	product, official := officialName(name)
 	switch {
-	case !official:
-		return "", "", "is not a Docker official image, so its contents are not known here"
+	case product == "":
+		return nil, "names no image", false
 	case digest != "" && tag == "":
-		return "", "", "is pinned by digest, which does not say which version it is"
+		return nil, "is pinned by digest, which does not say which version it is", false
 	case tag == "":
-		return "", "", "names no tag, so it follows latest"
+		return nil, "names no tag, so it follows latest", true
 	case tag == "latest":
-		return "", "", "names latest, not a version"
+		return nil, "names latest, not a version", true
 	}
-	return product, versionOf(tag), ""
+	ns = []Named{{Product: product, Version: versionOf(tag)}}
+	if !official {
+		// The variant convention is the official library's own. Another
+		// publisher's tag may end in any word at all, and reading one as a
+		// distribution would be the guess this package does not make.
+		return ns, "", false
+	}
+	return append(ns, base(tag)...), "", false
+}
+
+// base reads the operating system an official image's tag says it was built
+// on, which is the half of the tag that usually expires first: a
+// python:3.11-bullseye run in 2026 is a supported Python on a Debian that
+// stopped getting security fixes.
+//
+// The variant is spelled after a dash — 3.12-slim-bookworm, 20-alpine3.19 —
+// and its segments say which build this is. Two kinds carry a version. A
+// segment spelled alpine3.19 names Alpine 3.19 outright. A segment that is
+// one word may be a distribution codename, which names the release and the
+// distribution at once; the catalog settles which words those are, so a
+// segment it has no codename for was slim, fpm or jre and never a
+// declaration at all.
+func base(tag string) []Named {
+	_, variant, found := strings.Cut(tag, "-")
+	if !found {
+		return nil
+	}
+	var out []Named
+	for seg := range strings.SplitSeq(variant, "-") {
+		if v, ok := strings.CutPrefix(seg, "alpine"); ok && v != "" && v[0] >= '0' && v[0] <= '9' {
+			out = append(out, Named{Product: "alpine", Version: v})
+			continue
+		}
+		if word(seg) {
+			out = append(out, Named{Version: seg})
+		}
+	}
+	return out
+}
+
+// word reports whether a tag segment is one lowercase word, which is how a
+// codename is written. Anything carrying a digit — ltsc2022, jre17 — names a
+// build of something rather than a release of a distribution.
+func word(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		if s[i] < 'a' || s[i] > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 // split breaks a reference into its name, tag, and digest. The tag is cut at
@@ -72,14 +147,19 @@ func split(ref string) (name, tag, digest string) {
 	return name, tag, digest
 }
 
-// officialName reports whether an image name is a Docker official image, and
-// returns the software it names. The host and the library namespace, both of
-// which a reference may leave out, are taken off in turn; anything left
-// carrying a slash sits in a namespace somebody else controls.
+// officialName reads an image name: the software it names when it is a
+// Docker official image, and otherwise the name itself, with Docker Hub's
+// own host taken off so that the repository is spelled the way a purl
+// spells it. The host and the library namespace, both of which a reference
+// may leave out, are taken off in turn; anything left carrying a slash sits
+// in a namespace somebody else controls.
 func officialName(name string) (string, bool) {
 	for _, prefix := range mirrorPrefixes {
 		if rest, ok := strings.CutPrefix(name, prefix); ok {
-			return single(rest)
+			if s, ok := single(rest); ok {
+				return s, true
+			}
+			return name, false
 		}
 	}
 	for _, host := range hubHosts {
@@ -93,7 +173,10 @@ func officialName(name string) (string, bool) {
 	if rest, ok := strings.CutPrefix(name, "library/"); ok {
 		name = rest
 	}
-	return single(name)
+	if s, ok := single(name); ok {
+		return s, true
+	}
+	return name, false
 }
 
 // single reports whether what is left of a name is one segment, which is

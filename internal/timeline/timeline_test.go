@@ -155,6 +155,41 @@ func TestTable(t *testing.T) {
 	}
 }
 
+// TestTableFolds: one row is one release cycle, however many lines declared
+// it. A multi-stage Dockerfile naming the same base three times is one thing
+// to deal with and not three, and the places follow as the list of what to
+// go and change — a file named once, with its lines behind it.
+func TestTableFolds(t *testing.T) {
+	at2 := func(file string, line int) decl.Source { return decl.Source{File: file, Line: line} }
+	fs := []Finding{
+		{Product: "debian", Cycle: "11", EOL: at("2026-08-31"), Source: at2("Dockerfile", 2)},
+		{Product: "debian", Cycle: "11", EOL: at("2026-08-31"), Source: at2("Dockerfile", 22)},
+		{Product: "debian", Cycle: "11", EOL: at("2026-08-31"), Source: at2("Dockerfile", 34)},
+		{Product: "python", Cycle: "3.11", EOL: at("2027-10-31"), Source: at2(".github/workflows/lint.yml", 14)},
+		{Product: "python", Cycle: "3.11", EOL: at("2027-10-31"), Source: at2("Dockerfile", 2)},
+		{Product: "python", Cycle: "3.11", EOL: at("2027-10-31"), Source: at2("Dockerfile", 22)},
+	}
+	want := " -16d  2026-08-31  debian 11    Dockerfile:2,22,34\n" +
+		"+410d  2027-10-31  python 3.11  .github/workflows/lint.yml:14, Dockerfile:2,22\n"
+	if got := Table(fs, now); got != want {
+		t.Errorf("Table =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestTableFoldsRepeats: the same cycle declared twice at one line is still
+// the one place, and a file with no line to point at is named alone.
+func TestTableFoldsRepeats(t *testing.T) {
+	fs := []Finding{
+		{Product: "nodejs", Cycle: "14", EOL: at("2023-04-30"), Source: decl.Source{File: ".nvmrc"}},
+		{Product: "nodejs", Cycle: "14", EOL: at("2023-04-30"), Source: decl.Source{File: "mise.toml", Line: 2}},
+		{Product: "nodejs", Cycle: "14", EOL: at("2023-04-30"), Source: decl.Source{File: "mise.toml", Line: 2}},
+	}
+	want := "-1235d  2023-04-30  nodejs 14  .nvmrc, mise.toml:2\n"
+	if got := Table(fs, now); got != want {
+		t.Errorf("Table = %q; want %q", got, want)
+	}
+}
+
 // TestDistance: the sign says which side of today a date falls on, so the
 // day it lands on carries none. +0d would read as still to come for
 // something that has already arrived.

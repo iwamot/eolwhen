@@ -21,9 +21,9 @@ func write(t *testing.T, dir, name, body string) {
 func TestDir(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, ".python-version", "2.7.18\n")
-	write(t, dir, ".nvmrc", "lts/hydrogen\n")
+	write(t, dir, ".nvmrc", "iojs\n")
 	write(t, dir, "go.mod", "module example.com/x\n\ngo 1.16\n")
-	write(t, dir, "Dockerfile", "FROM python:3.7-slim\n")
+	write(t, dir, "Dockerfile", "FROM python:3.7-bullseye\n")
 	// Below the directory, which is where a monorepo and a docker/ folder
 	// keep theirs.
 	write(t, dir, "docker/Dockerfile.ci", "FROM ubuntu:18.04\n")
@@ -44,12 +44,19 @@ func TestDir(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, d := range ds {
-		got[d.Source.String()] = d.Product + " " + d.Version
+		at := d.Source.String()
+		if _, seen := got[at]; seen {
+			at += " (base)"
+		}
+		got[at] = d.Product + " " + d.Version
 	}
 	want := map[string]string{
-		".python-version:1":          "python 2.7.18",
-		"go.mod:3":                   "go 1.16",
-		"Dockerfile:1":               "python 3.7",
+		".python-version:1": "python 2.7.18",
+		"go.mod:3":          "go 1.16",
+		"Dockerfile:1":      "python 3.7",
+		// The tag also names the distribution the image was built on, which
+		// the catalog matches by its codename.
+		"Dockerfile:1 (base)":        " bullseye",
 		"docker/Dockerfile.ci:1":     "ubuntu 18.04",
 		"packages/web/.nvmrc:1":      "nodejs 14.19.0",
 		".github/workflows/ci.yml:3": "github-actions-runner-images macos-13",
@@ -64,7 +71,7 @@ func TestDir(t *testing.T) {
 			t.Errorf("at %s got %q; want %q", k, got[k], v)
 		}
 	}
-	if len(us) != 1 || us[0].Text != "lts/hydrogen" {
+	if len(us) != 1 || us[0].Text != "iojs" {
 		t.Errorf("unreadable = %+v; want the .nvmrc line", us)
 	}
 }
