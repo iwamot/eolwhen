@@ -257,7 +257,7 @@ func (r *Result) place(product, cycle string, release catalog.Release, src decl.
 func unmatched(p catalog.Product, d decl.Decl) (reason string, moving bool) {
 	v := d.Version
 	switch {
-	case d.Below != "":
+	case d.Allows.Closed():
 		return "names a range of versions rather than one, so the lockfile decides which one", true
 	case p.Numbered() && (v == "" || v[0] < '0' || v[0] > '9'):
 		return "names a variant or an alias, not a version", true
@@ -287,17 +287,19 @@ func match(p catalog.Product, v string) (string, bool) {
 // range sits inside. A range spanning two cycles reaches neither, because
 // which of them gets installed is a resolver's answer and not this one's.
 func reach(p catalog.Product, d decl.Decl) (string, bool) {
-	if d.Below != "" {
-		return cycle.Sole(d.From, d.Below, p.Cycles())
+	if d.Allows.Closed() {
+		return cycle.Sole(d.Allows, p.Cycles())
 	}
 	return match(p, d.Version)
 }
 
 // lowest is the version a declaration starts at, which is the whole of it
-// unless it named a range.
+// unless it named a range. A range with no floor starts at no version at
+// all, and answering with the lowest version there is would place a `< 7.0`
+// below every cycle the catalog tracks.
 func lowest(d decl.Decl) string {
-	if d.From != "" {
-		return d.From
+	if d.Allows.From != "" {
+		return d.Allows.From
 	}
 	return d.Version
 }

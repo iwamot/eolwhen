@@ -46,8 +46,8 @@ func check(t *testing.T, body string, ws ...want) {
 		if got.Product != w.product || got.Version != w.version {
 			t.Errorf("[%d] = %s %q; want %s %q", i, got.Product, got.Version, w.product, w.version)
 		}
-		if got.From != w.from || got.Below != w.below {
-			t.Errorf("[%d] range = %q..%q; want %q..%q", i, got.From, got.Below, w.from, w.below)
+		if got.Allows.From != w.from || got.Allows.Below != w.below {
+			t.Errorf("[%d] range = %q..%q; want %q..%q", i, got.Allows.From, got.Allows.Below, w.from, w.below)
 		}
 		if got.Source != (decl.Source{File: "Gemfile", Line: w.line}) {
 			t.Errorf("[%d] source = %s; want Gemfile:%d", i, got.Source, w.line)

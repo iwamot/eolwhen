@@ -6,7 +6,11 @@
 // produce are the same records the built-in extractors produce.
 package decl
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/iwamot/eolwhen/internal/span"
+)
 
 // Decl is one declaration read from a file. Product is the name as the file
 // spelled it and Version is the version string verbatim, both before the
@@ -24,13 +28,12 @@ type Decl struct {
 	Ecosystem string
 	Product   string
 	Version   string
-	// From and Below are the ends of the range the declaration allows, the
-	// first admitted and the first not, and they are set when the file
-	// pinned a range rather than a version, as a manifest usually does.
+	// Allows is the range of versions the declaration admits, set when the
+	// file pinned a range rather than a version, as a manifest usually
+	// does, and set only when both of its ends are known.
 	// Version stays the text as written, which is what a reader is shown.
 	// A range still reaches a cycle when the whole of it sits inside one.
-	From   string
-	Below  string
+	Allows span.Span
 	Source Source
 }
 

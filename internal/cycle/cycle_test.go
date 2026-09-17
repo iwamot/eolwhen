@@ -1,6 +1,10 @@
 package cycle
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/iwamot/eolwhen/internal/span"
+)
 
 func TestMatch(t *testing.T) {
 	python := []string{"3.14", "3.13", "3.12", "3.11", "3.10", "3.9", "3.1", "2.7"}
@@ -183,44 +187,19 @@ func TestSole(t *testing.T) {
 		{"empty lower bound", "", "6.2", rails, "", false},
 		{"empty upper bound", "6.1.0", "", rails, "", false},
 		{"bound is a word", "latest", "6.2", rails, "", false},
+
+		// A requirement that set only a ceiling has no floor, and no floor
+		// is not a floor of zero: it reaches down to the oldest cycle and
+		// no further than the ceiling.
+		{"no floor, reaching one cycle", "", "5.3", rails, "5.2", true},
+		{"no floor, reaching several", "", "6.2", rails, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := Sole(tt.lo, tt.hi, tt.cycles)
+			s := span.Span{From: tt.lo, Below: tt.hi}
+			got, ok := Sole(s, tt.cycles)
 			if got != tt.want || ok != tt.ok {
 				t.Errorf("Sole(%q, %q) = %q, %v; want %q, %v", tt.lo, tt.hi, got, ok, tt.want, tt.ok)
-			}
-		})
-	}
-}
-
-func TestLower(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b string
-		want bool
-	}{
-		// Caught: the shorter bound is read as if padded with zeros, which
-		// is what a bound means.
-		{"lower major", "6.1", "7.0", true},
-		{"lower minor", "6.1", "6.2", true},
-		{"shorter against its own line", "6.1", "6.1.1", true},
-		{"6.10 is above 6.9", "6.9", "6.10", true},
-
-		// Not caught: equal bounds, and a bound that merely runs out.
-		{"the same", "6.1", "6.1", false},
-		{"the same padded", "6.1", "6.1.0", false},
-		{"higher", "7.0", "6.1", false},
-
-		// Undecidable: a bound that is not a version is below nothing.
-		{"a word", "latest", "6.1", false},
-		{"a word on the right", "6.1", "latest", false},
-		{"empty", "", "6.1", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Lower(tt.a, tt.b); got != tt.want {
-				t.Errorf("Lower(%q, %q) = %v; want %v", tt.a, tt.b, got, tt.want)
 			}
 		})
 	}

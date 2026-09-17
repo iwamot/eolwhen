@@ -2,7 +2,7 @@ package gemfile
 
 import "testing"
 
-func TestSpan(t *testing.T) {
+func TestAllows(t *testing.T) {
 	tests := []struct {
 		name   string
 		reqs   []string
@@ -20,8 +20,8 @@ func TestSpan(t *testing.T) {
 		{"a ceiling that admits itself", []string{">= 6.0", "<= 6.1"}, "6.0", "6.2", true},
 		{"an exclusive floor", []string{"> 6.0", "< 7"}, "6.0", "7", true},
 		{"a floor inside a pessimistic bound", []string{"~> 6.0", ">= 6.0.3"}, "6.0.3", "7", true},
-		{"the narrower of two ceilings", []string{"< 8", "< 7"}, "0", "7", true},
-		{"a wider ceiling does not widen it", []string{"< 7", "< 8"}, "0", "7", true},
+		{"the narrower of two ceilings", []string{"< 8", "< 7"}, "", "7", true},
+		{"a wider ceiling does not widen it", []string{"< 7", "< 8"}, "", "7", true},
 		{"the higher of two floors", []string{">= 6.0", ">= 6.5", "< 7"}, "6.5", "7", true},
 		{"a lower floor does not lower it", []string{">= 6.5", ">= 6.0", "< 7"}, "6.5", "7", true},
 		{"no space after the operator", []string{"~>6.1.0"}, "6.1.0", "6.2", true},
@@ -43,9 +43,9 @@ func TestSpan(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lo, hi, ok := span(tt.reqs)
-			if lo != tt.lo || hi != tt.hi || ok != tt.ok {
-				t.Errorf("span(%q) = %q, %q, %v; want %q, %q, %v", tt.reqs, lo, hi, ok, tt.lo, tt.hi, tt.ok)
+			got, ok := allows(tt.reqs)
+			if got.From != tt.lo || got.Below != tt.hi || ok != tt.ok {
+				t.Errorf("allows(%q) = %q, %q, %v; want %q, %q, %v", tt.reqs, got.From, got.Below, ok, tt.lo, tt.hi, tt.ok)
 			}
 		})
 	}
