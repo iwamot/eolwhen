@@ -31,6 +31,11 @@ func TestReadCaught(t *testing.T) {
 		{"with Docker Hub's own host", "docker.io/library/redis:6.2", "redis", "6.2"},
 		{"the full registry name", "index.docker.io/library/redis:6.2", "redis", "6.2"},
 		{"the registry's own hostname", "registry-1.docker.io/library/redis:6.2", "redis", "6.2"},
+		// Docker Hub fills in the library namespace when a name is written
+		// without one, so these name the official image too.
+		{"Docker Hub's host and no namespace", "docker.io/python:2.7", "python", "2.7"},
+		{"the full registry name and no namespace", "index.docker.io/python:2.7", "python", "2.7"},
+		{"the registry's own hostname and no namespace", "registry-1.docker.io/python:2.7", "python", "2.7"},
 		{"a mirror of the official library", "public.ecr.aws/docker/library/node:24.21.0-trixie-slim", "node", "24.21.0"},
 		// A tag next to a digest is still the version the author wrote.
 		{"a tag pinned by digest", "python:3.7-slim@sha256:00", "python", "3.7"},
@@ -65,6 +70,13 @@ func TestReadReported(t *testing.T) {
 		{"a private registry with a port", "registry.corp:5000/base:1.2",
 			"is not a Docker official image, so its contents are not known here"},
 		{"a mirror of something else entirely", "public.ecr.aws/acme/python:3.7",
+			"is not a Docker official image, so its contents are not known here"},
+		// Filling in the library namespace is Docker Hub's rule and nobody
+		// else's, so a namespace on Docker Hub is still somebody else's and
+		// a mirror is only the library at the exact path it copies it to.
+		{"another namespace on Docker Hub", "docker.io/acme/python:3.7",
+			"is not a Docker official image, so its contents are not known here"},
+		{"a mirror without the library path", "public.ecr.aws/docker/python:3.7",
 			"is not a Docker official image, so its contents are not known here"},
 		{"nothing at all", "",
 			"is not a Docker official image, so its contents are not known here"},
