@@ -59,7 +59,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 		src := decl.Source{File: file, Line: i + 1}
 		name, reqs := m[1], requirements(m[2])
 		text := strings.Join(reqs, ", ")
-		lo, hi, ok := span(reqs)
+		allowed, ok := allows(reqs)
 		if !ok {
 			us = append(us, decl.Unreadable{
 				Source:    src,
@@ -75,8 +75,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			Ecosystem: Ecosystem,
 			Product:   name,
 			Version:   text,
-			From:      lo,
-			Below:     hi,
+			Allows:    allowed,
 			Source:    src,
 		})
 	}

@@ -5,6 +5,8 @@ package cycle
 import (
 	"strconv"
 	"strings"
+
+	"github.com/iwamot/eolwhen/internal/span"
 )
 
 // Match returns the longest cycle whose dot-separated segments are a prefix
@@ -149,8 +151,8 @@ func numbers(s string) ([]int, bool) {
 	return out, true
 }
 
-// Sole returns the one cycle that every version from lo (inclusive) to hi
-// (exclusive) falls into, when the range reaches exactly one.
+// Sole returns the one cycle that every version a requirement allows falls
+// into, when the range reaches exactly one.
 //
 // A manifest pins a range more often than a version: `gem "rails", "~> 6.1.0"`
 // allows every 6.1.x, and which of them is installed is decided by a
@@ -159,22 +161,17 @@ func numbers(s string) ([]int, bool) {
 // a version — every version `~> 6.1.0` allows is Rails 6.1, and Rails 6.1
 // has an end-of-life date. A range that reaches two cycles has no single
 // date behind it and gets no row.
-func Sole(lo, hi string, cycles []string) (string, bool) {
-	low, okLo := numbers(lo)
-	high, okHi := numbers(hi)
-	if !okLo || !okHi {
-		return "", false
-	}
+func Sole(s span.Span, cycles []string) (string, bool) {
 	found, n := "", 0
 	for _, c := range cycles {
-		start, ok := numbers(c)
-		if !ok {
-			continue
-		}
 		// A cycle holds a line of versions rather than one version: 6.1
 		// covers every 6.1.x, so it runs from 6.1 up to where 6.2 begins.
 		// The two ranges meet when each starts before the other ends.
-		if lower(low, next(start)) && lower(start, high) {
+		end, ok := span.Next(c)
+		if !ok {
+			continue
+		}
+		if s.Meets(c, end) {
 			found, n = c, n+1
 		}
 	}
@@ -182,46 +179,4 @@ func Sole(lo, hi string, cycles []string) (string, bool) {
 		return "", false
 	}
 	return found, true
-}
-
-// Lower reports whether the bound a is below the bound b, which is how the
-// two ends of a range are compared when several requirements narrow it.
-// Either side that is not a version at all is below nothing.
-func Lower(a, b string) bool {
-	x, okA := numbers(a)
-	y, okB := numbers(b)
-	if !okA || !okB {
-		return false
-	}
-	return lower(x, y)
-}
-
-// lower compares two bounds, reading the shorter as if it were padded with
-// zeros. That is what a bound means: 6.1 as a lower bound admits 6.1.0, so
-// it is neither above nor below it. It is not the ordering less does, where
-// a version that merely runs out covers what follows it rather than sitting
-// below it.
-func lower(a, b []int) bool {
-	for i := range max(len(a), len(b)) {
-		x, y := at(a, i), at(b, i)
-		if x != y {
-			return x < y
-		}
-	}
-	return false
-}
-
-func at(s []int, i int) int {
-	if i < len(s) {
-		return s[i]
-	}
-	return 0
-}
-
-// next is the first version past the line a cycle names: the 6.1 cycle ends
-// where 6.2 begins, and the 6 cycle where 7 does.
-func next(v []int) []int {
-	out := append([]int(nil), v...)
-	out[len(out)-1]++
-	return out
 }

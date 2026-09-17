@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/iwamot/eolwhen/internal/compose"
+	"github.com/iwamot/eolwhen/internal/composerjson"
 	"github.com/iwamot/eolwhen/internal/decl"
 	"github.com/iwamot/eolwhen/internal/dockerfile"
 	"github.com/iwamot/eolwhen/internal/gemfile"
@@ -131,6 +132,9 @@ func extractorFor(path string) (extractor, bool) {
 	}
 	if gemfile.Matches(filepath.Base(path)) {
 		return gemfile.Extract, true
+	}
+	if composerjson.Matches(filepath.Base(path)) {
+		return composerjson.Extract, true
 	}
 	if workflow.Matches(path) {
 		return workflow.Extract, true

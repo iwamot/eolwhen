@@ -8,8 +8,10 @@
 // deciding which of them anything is known about is the catalog's job.
 //
 // Only a bare tool name is read. A key carrying a backend — aqua:, go:,
-// npm:, pipx: — names a package in a registry anyone can publish to, where a
-// name is not a promise about what the software is.
+// npm:, pipx: — names a package rather than a tool, and a package is read
+// where the file it sits in fixes the registry, as a Gemfile and a
+// composer.json do. A backend written as a prefix on a key is not read that
+// way yet.
 package toolfile
 
 import (

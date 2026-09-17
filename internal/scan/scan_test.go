@@ -32,6 +32,7 @@ func TestDir(t *testing.T) {
 	write(t, dir, "compose.yml", "services:\n  db:\n    image: postgres:11\n")
 	write(t, dir, "mise.toml", "[tools]\nbun = \"1.2\"\n")
 	write(t, dir, "Gemfile", "source \"https://rubygems.org\"\ngem \"rails\", \"~> 6.1.0\"\n")
+	write(t, dir, "composer.json", "{\n  \"require\": {\n    \"php\": \"^7.4\"\n  }\n}\n")
 	// A YAML file is a workflow because of where it sits, so this one is not.
 	write(t, dir, ".github/dependabot.yml", "jobs:\n  a:\n    runs-on: macos-12\n")
 	// Somebody else's declarations, which this directory is not answering
@@ -64,6 +65,7 @@ func TestDir(t *testing.T) {
 		"compose.yml:3":              "postgres 11",
 		"mise.toml:2":                "bun 1.2",
 		"Gemfile:2":                  "rails ~> 6.1.0",
+		"composer.json:3":            "php ^7.4",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("declarations = %v; want %v", got, want)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/iwamot/eolwhen/internal/catalog"
 	"github.com/iwamot/eolwhen/internal/decl"
+	"github.com/iwamot/eolwhen/internal/span"
 )
 
 const doc = `{"result":[
@@ -368,8 +369,7 @@ func gem(name, text, from, below string) decl.Decl {
 		Ecosystem: "gem",
 		Product:   name,
 		Version:   text,
-		From:      from,
-		Below:     below,
+		Allows:    span.Span{From: from, Below: below},
 		Source:    decl.Source{File: "Gemfile", Line: 1},
 	}
 }
@@ -463,8 +463,8 @@ func TestAllOrdersWhatItSetsAside(t *testing.T) {
 	at := func(line int) decl.Source { return decl.Source{File: "Gemfile", Line: line} }
 	r := All(loadPkg(t),
 		[]decl.Decl{
-			{Ecosystem: "gem", Product: "puma", Version: "~> 5.0", From: "5.0", Below: "6", Source: at(3)},
-			{Ecosystem: "gem", Product: "redis", Version: "~> 4.0", From: "4.0", Below: "5", Source: at(5)},
+			{Ecosystem: "gem", Product: "puma", Version: "~> 5.0", Allows: span.Span{From: "5.0", Below: "6"}, Source: at(3)},
+			{Ecosystem: "gem", Product: "redis", Version: "~> 4.0", Allows: span.Span{From: "4.0", Below: "5"}, Source: at(5)},
 		},
 		[]decl.Unreadable{
 			{Source: at(2), Ecosystem: "gem", Product: "sidekiq", Moving: true},
@@ -498,5 +498,20 @@ func TestAllOrdersTheQuietLists(t *testing.T) {
 	}
 	if len(r.Moving) != 2 || r.Moving[0].Source.Line != 1 || r.Moving[1].Source.Line != 4 {
 		t.Errorf("Moving = %+v; want lines 1 then 4", r.Moving)
+	}
+}
+
+// TestAllDoesNotPlaceAFloorlessRangeBelowEveryCycle guards the one way a
+// range can look like a very old version: a requirement that set only a
+// ceiling has no floor at all, and reading that as a floor of zero would put
+// `<= 6.1` on the timeline as older than anything the catalog tracks.
+func TestAllDoesNotPlaceAFloorlessRangeBelowEveryCycle(t *testing.T) {
+	c := loadPkg(t)
+	r := All(c, []decl.Decl{gem("rails", "<= 6.1", "", "6.2")}, nil)
+	if len(r.Findings) != 0 {
+		t.Fatalf("Findings = %+v; want none", r.Findings)
+	}
+	if len(r.Moving) != 1 {
+		t.Fatalf("Moving = %+v; want 1", r.Moving)
 	}
 }

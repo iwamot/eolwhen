@@ -604,6 +604,15 @@ const corpusDoc = `{"result":[
   ]},
   {"name":"postgresql","aliases":["pg"],"releases":[
     {"name":"13","eolFrom":"2025-11-13"}
+  ]},
+  {"name":"php","aliases":[],"releases":[
+    {"name":"8.1","eolFrom":"2025-12-31"},
+    {"name":"7.4","eolFrom":"2022-11-28"}
+  ]},
+  {"name":"laravel","aliases":[],"identifiers":[
+    {"type":"purl","id":"pkg:composer/laravel/framework"}
+  ],"releases":[
+    {"name":"8","eolFrom":"2023-01-24"}
   ]}
 ]}`
 
@@ -646,6 +655,17 @@ func TestRunCorpus(t *testing.T) {
 		"gem \"rails\", \"~> 6.1.0\"\n"+
 		"gem \"pg\", \">= 1.1\"\n"+
 		"gem \"puma\"\n")
+	// A manifest whose framework is a declaration, whose extension
+	// requirement is not a package at all, and whose php is the runtime the
+	// whole thing sits on.
+	write("composer.json", "{\n"+
+		"  \"require\": {\n"+
+		"    \"php\": \"^7.4\",\n"+
+		"    \"ext-json\": \"*\",\n"+
+		"    \"laravel/framework\": \"^8.0\",\n"+
+		"    \"monolog/monolog\": \"^2.0\"\n"+
+		"  }\n"+
+		"}\n")
 	write(filepath.Join(".github", "workflows", "ci.yml"), "jobs:\n"+
 		"  lint:\n"+
 		"    runs-on: ubuntu-latest\n"+
@@ -671,6 +691,8 @@ func TestRunCorpus(t *testing.T) {
 	var so, se bytes.Buffer
 	code := report(cliArgs{dir: dir}, c, ds, us, now, &so, &se)
 	want := "" +
+		"-1388d  2022-11-28  php 7.4                                    composer.json:3\n" +
+		"-1331d  2023-01-24  laravel 8                                  composer.json:5\n" +
 		"-1279d  2023-03-17  opensearch 1.3                             docker-compose.yml:3\n" +
 		" -715d  2024-10-01  rails 6.1                                  Gemfile:2\n" +
 		" -320d  2025-10-31  python 3.9                                 .github/workflows/ci.yml:8\n" +
@@ -683,8 +705,9 @@ func TestRunCorpus(t *testing.T) {
 	}
 	// What is left over is ubuntu-latest, which follows the newest runner
 	// image on purpose; acme/sandbox, which endoflife.date publishes no
-	// image for; and the gems it publishes no name for, pg among them,
-	// which the catalog would otherwise have answered as PostgreSQL. None
+	// image for; the gems and packages it publishes no name for, pg among
+	// them, which the catalog would otherwise have answered as PostgreSQL;
+	// and ext-json, which is not software with a calendar of its own. None
 	// is a line anyone can act on, so the default answer says nothing at
 	// all.
 	if se.String() != "" {
