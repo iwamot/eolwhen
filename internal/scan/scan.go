@@ -76,6 +76,15 @@ func Dir(dir string) ([]decl.Decl, []decl.Unreadable, error) {
 			}
 			return nil
 		}
+		// Only the directory's own files are read. A link names a file that
+		// sits somewhere else, whose declarations are that directory's
+		// rather than this one's, and a pipe or a device named like a
+		// manifest holds no manifest at all. Both are passed over as
+		// quietly as a skipped directory is: nothing here was offered as a
+		// file of this directory in the first place.
+		if !d.Type().IsRegular() {
+			return nil
+		}
 		// Normalized here and nowhere else: which extractor reads a file
 		// depends on the directory it sits in, and a path that still
 		// carries the platform's separator would hide .github/workflows
