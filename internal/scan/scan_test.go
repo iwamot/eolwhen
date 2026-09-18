@@ -130,13 +130,14 @@ func TestDirMissing(t *testing.T) {
 	}
 }
 
-// TestDirUnreadableFile: a name the walk offers but the read cannot open —
-// here a symlink to nothing — is reported and the rest of the tree is still
-// read, because one unreadable corner is not a reason to refuse an answer.
+// TestDirUnreadableFile: a file the walk offers but the read cannot open is
+// reported and the rest of the tree is still read, because one unreadable
+// corner is not a reason to refuse an answer.
 func TestDirUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, ".nvmrc")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
+	write(t, dir, ".nvmrc", "14.19.0\n")
+	if err := os.Chmod(filepath.Join(dir, ".nvmrc"), 0o000); err != nil {
+		t.Skipf("cannot lock a file here: %v", err)
 	}
 	write(t, dir, ".python-version", "2.7.18\n")
 	ds, us, err := Dir(dir)
@@ -144,10 +145,10 @@ func TestDirUnreadableFile(t *testing.T) {
 		t.Fatalf("Dir: %v", err)
 	}
 	if len(ds) != 1 || ds[0].Product != "python" {
-		t.Errorf("declarations = %+v; want the readable one", ds)
+		t.Skipf("the file was readable anyway (running as root?): %+v", ds)
 	}
 	if len(us) != 1 || us[0].Source.File != ".nvmrc" || us[0].Text != "" {
-		t.Errorf("unreadable = %+v; want the .nvmrc path alone", us)
+		t.Fatalf("unreadable = %+v; want the .nvmrc path alone", us)
 	}
 	if !strings.HasPrefix(us[0].Reason, "could not be read") {
 		t.Errorf("reason = %q", us[0].Reason)
@@ -244,6 +245,33 @@ func TestDirBrokenSymlink(t *testing.T) {
 	}
 	if _, _, err := Dir(link); err == nil {
 		t.Error("want an error for a link to nothing")
+	}
+}
+
+// TestDirLeavesALinkAlone: a link named like a manifest points at a file
+// that sits somewhere else, whose declarations belong to the directory it
+// sits in. Answering with them would answer about a directory nobody asked
+// about, so the link is passed over, and so is one that points at nothing.
+func TestDirLeavesALinkAlone(t *testing.T) {
+	outside := t.TempDir()
+	write(t, outside, ".python-version", "2.7.18\n")
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(outside, ".python-version"), filepath.Join(dir, ".python-version")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, "Gemfile")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	write(t, dir, ".nvmrc", "14.19.0\n")
+	ds, us, err := Dir(dir)
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if len(ds) != 1 || ds[0].Product != "nodejs" {
+		t.Errorf("declarations = %+v; want the directory's own file alone", ds)
+	}
+	if len(us) != 0 {
+		t.Errorf("unreadable = %+v; want nothing said about a link", us)
 	}
 }
 
