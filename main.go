@@ -53,10 +53,10 @@ Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, the dependencies of any package.json, pyproject.toml or
-requirements.txt, the target framework of any .csproj, .fsproj or .vbproj,
-and the runs-on labels and setup-* versions in .github/workflows, then
-matched against endoflife.date. DIR is searched to the bottom, skipping
+any composer.json, the dependencies of any package.json, pyproject.toml,
+requirements.txt or pom.xml, the target framework of any .csproj, .fsproj or
+.vbproj, and the runs-on labels and setup-* versions in .github/workflows,
+then matched against endoflife.date. DIR is searched to the bottom, skipping
 directories that hold somebody else's code: node_modules, vendor, .venv and
 the like.
 
@@ -74,7 +74,9 @@ date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
 in a composer.json and every 1.2.x in a package.json. Python's decide more
 often than most, == naming one version and ~=4.2.0 one release cycle, which
 is how a requirements.txt is usually written; a Poetry table in the same
-pyproject.toml writes npm's operators instead, and is read with them.
+pyproject.toml writes npm's operators instead, and is read with them. A
+pom.xml settles fewer: a version written as ${spring.version} is read where
+the same file sets that property, and left to Maven where a parent POM does.
 
 A target framework moniker names the runtime a project runs on, and the dot
 says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET

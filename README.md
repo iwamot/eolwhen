@@ -58,6 +58,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `pyproject.toml` | each requirement in `dependencies`, `optional-dependencies` and `dependency-groups` whose name endoflife.date publishes, and each dependency of a Poetry table |
 | `requirements*.txt`, and any `.txt` in a `requirements/` directory | the same, one requirement per line |
 | `*.csproj`, `*.fsproj`, `*.vbproj` | the target framework the project runs on — Microsoft .NET, or the .NET Framework |
+| `pom.xml` | the `<parent>` it builds on and each `<dependency>` whose group and artifact endoflife.date publishes, where this file settles the version |
 | `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
 A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A `mise.toml` key may carry a backend — `aqua:`, `go:`, `npm:` — and then it names a package rather than a tool. The backend is what fixes the registry, so the name is answered as a `Gemfile`'s is: through the purls endoflife.date publishes for that registry and through nothing else. `aqua:`, `github:` and `ubi:` install from a GitHub release and name the repository, which is a github purl; `cargo:`, `conda:`, `dotnet:`, `gem:`, `go:`, `npm:`, `pipx:` and `spm:` name their own registries; `core:` names one of mise's own tools, which a bare name reaches anyway. A backend with no registry to look a name up in — an asdf or vfox plugin, a download from a URL or a bucket — is passed over. A `.tool-versions` has no backends: asdf reads a plugin name and nothing else.
@@ -140,6 +141,8 @@ A `package.json` has a line of its own that is not a dependency. `packageManager
 Python is the ecosystem where the ranges usually do decide. A `requirements.txt` is written with `==`, which names one version, and `~=4.2.0` and `==4.2.*` each name one release cycle outright — so a neglected Python project says which Django it is running rather than leaving it to a resolver. A `pyproject.toml` writes the same requirements in `dependencies`, in an extra, or in a dependency group, and all of them are read. What is not read is the rest of the line: the extras in `django[argon2]`, which name parts of the same package, and the marker after a semicolon, which says when a requirement applies rather than to what. An exclusion (`!=`) leaves a range with a hole in it, and sets the whole requirement aside.
 
 Poetry writes the same dependencies its own way, as a key with a constraint rather than as a PEP 508 string, and a `pyproject.toml` is read both ways — a project moving from one to the other has both for a while. Poetry's operators are npm's rather than PEP 440's: `^4.2` is every 4.x from 4.2, `~1.14.0` every 1.14.x, and a version on its own is that version. An entry that names no version of its own — a dependency taken from a repository or a path, or one written as a constraint per interpreter — is set aside like any requirement an install settles. Its `python` key is left alone, being `requires-python` under another name.
+
+A `pom.xml` is the one manifest that does not close over itself. A version may be written as `${spring.version}`, and the property may be set in a parent POM this file does not hold; a dependency may carry no version at all, the parent deciding it, which is how a Spring Boot project is usually written. What is read is what the file settles on its own: a literal `<version>`, and a property the project's own `<properties>` sets. Everything else names no version here, and Maven is the one that resolves it. A dependency is read wherever it is declared — under `<dependencyManagement>`, or in a `<profile>` — because each of those is the project saying which version it builds with. A profile's own properties are not read: two profiles may set the same one differently, and which of them applies is settled when the build runs.
 
 PyPI treats a name with dashes, underscores and dots as one name — `typing_extensions` and `typing-extensions` are the same package — so a manifest may spell it any of those ways and still reach the product. That rule is PyPI's alone, and no other registry here gets it.
 
@@ -267,10 +270,10 @@ Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, the dependencies of any package.json, pyproject.toml or
-requirements.txt, the target framework of any .csproj, .fsproj or .vbproj,
-and the runs-on labels and setup-* versions in .github/workflows, then
-matched against endoflife.date. DIR is searched to the bottom, skipping
+any composer.json, the dependencies of any package.json, pyproject.toml,
+requirements.txt or pom.xml, the target framework of any .csproj, .fsproj or
+.vbproj, and the runs-on labels and setup-* versions in .github/workflows,
+then matched against endoflife.date. DIR is searched to the bottom, skipping
 directories that hold somebody else's code: node_modules, vendor, .venv and
 the like.
 
@@ -288,7 +291,9 @@ date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
 in a composer.json and every 1.2.x in a package.json. Python's decide more
 often than most, == naming one version and ~=4.2.0 one release cycle, which
 is how a requirements.txt is usually written; a Poetry table in the same
-pyproject.toml writes npm's operators instead, and is read with them.
+pyproject.toml writes npm's operators instead, and is read with them. A
+pom.xml settles fewer: a version written as ${spring.version} is read where
+the same file sets that property, and left to Maven where a parent POM does.
 
 A target framework moniker names the runtime a project runs on, and the dot
 says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET
@@ -374,7 +379,7 @@ Exit codes:
 ## Out of scope
 
 - **Libraries.** A manifest is mostly libraries, and a library rarely has an end of life: it is released until it is not, and "old" is not "unsupported" when nobody promised support in the first place. Whether a library has been abandoned is a real question with no date behind it, and it belongs to [uzomuzo](https://github.com/future-architect/uzomuzo) and [xeol](https://github.com/xeol-io/xeol). What is read here is the other half of a manifest — the framework the application sits on, which publishes a support calendar for the same reason a distribution does. The two are told apart by the package names endoflife.date publishes and by nothing else, so the line is drawn by upstream rather than guessed at here.
-- **`pom.xml`.** A Maven `<version>` is often a property a parent POM defines, which is not one file to read. Later.
+- **A POM's parent, and the properties it sets.** A `<version>` written as `${spring.version}` is read where the same file sets that property and left alone where a parent POM does, because following it would mean resolving a POM this directory may not hold. Maven itself is the tool for that.
 - **Lockfiles.** A manifest that pins no single version has its answer in the lockfile beside it, which is not read: `Gemfile.lock` says which Rails was resolved where the `Gemfile` only said `>= 6.0`, and `composer.lock` the same for `^7.4 || ^8.0`. Those lines are set aside rather than guessed at, and `--verbose` names them.
 - **Vulnerabilities.** They carry no date, so they do not belong on a timeline, and `osv-scanner`, `trivy`, and `grype` already read a directory for them. The two answers meet in one place worth saying out loud: once a runtime is past its end of life, the vulnerabilities found from then on are never fixed.
 - **Deprecated GitHub Actions.** `actions/checkout@v2` has no machine-readable source to track, and unlike an expired base image it does not fail quietly — the workflow says so the next time it runs.
