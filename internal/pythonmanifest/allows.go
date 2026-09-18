@@ -111,10 +111,10 @@ func allows(specifier string) (span.Span, bool) {
 }
 
 // comparison spells an operator the way Narrow reads it, which differs for
-// equality alone: PEP 440 writes == where the comparisons every manifest
-// shares write =. The rest keep their spelling, and the two that name no one
-// stretch of versions — an exclusion, an arbitrary equality — are refused
-// there.
+// equality alone: both of Python's manifests write == where the comparisons
+// every manifest shares write =. The rest keep their spelling, and the ones
+// that name no one stretch of versions — an exclusion, an arbitrary equality
+// — are refused there.
 func comparison(op string) string {
 	if op == "==" {
 		return "="
