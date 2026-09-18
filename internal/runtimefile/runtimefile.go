@@ -1,11 +1,16 @@
 // Package runtimefile reads the small files that name a runtime version:
-// .python-version, .nvmrc, .node-version, .ruby-version, and the go
-// directive in go.mod.
+// .python-version, .nvmrc, .node-version, .ruby-version, .php-version,
+// .go-version, .terraform-version, and the go directive in go.mod.
 //
 // The file name decides the product. .nvmrc can only be about Node.js, so
 // nothing here has to guess a product from the text it reads, and a version
 // that turns out to be a word rather than a number is reported rather than
 // guessed at.
+//
+// That is what keeps .java-version out. A version manager writes 17 in it
+// and nothing else, and endoflife.date tracks nine builds of Java, each with
+// a calendar of its own, so the file settles which software no more than the
+// bare number does.
 package runtimefile
 
 import (
@@ -37,6 +42,9 @@ var Files = []File{
 	{Name: ".nvmrc", Product: "nodejs", Prefixes: []string{"node-", "nodejs-"}, Settings: true},
 	{Name: ".node-version", Product: "nodejs", Prefixes: []string{"node-", "nodejs-"}},
 	{Name: ".ruby-version", Product: "ruby", Prefixes: []string{"ruby-"}},
+	{Name: ".php-version", Product: "php"},
+	{Name: ".go-version", Product: "go"},
+	{Name: ".terraform-version", Product: "terraform"},
 	{Name: "go.mod", Product: "go"},
 }
 
@@ -192,13 +200,20 @@ func looksLikeVersion(s string) bool {
 
 // reason says why a line could not be used, in words that name the next step
 // where there is one, and whether the line names no fixed version by design.
-// A moving target and a version left to whatever is installed are both the
-// latter: they were never going to have a date, so there is nothing to go
-// and look at.
+// A moving target, a version left to whatever is installed, and one left to
+// the configuration beside it are all the latter: they were never going to
+// have a date, so there is nothing to go and look at.
 func reason(text string) (string, bool) {
 	switch {
 	case strings.HasPrefix(text, "lts/"), text == "lts", text == "node", text == "latest", text == "stable":
 		return "names a moving target, not a version", true
+	// tfenv writes the newest release matching a pattern, which is a rule
+	// for following one rather than a version, and reads min-required out
+	// of the configuration beside it, which is where the version then is.
+	case strings.HasPrefix(text, "latest:"):
+		return "names the newest release matching a pattern, not a version", true
+	case text == "min-required":
+		return "defers to what the configuration requires", true
 	case text == "system":
 		return "defers to whatever is installed", true
 	default:

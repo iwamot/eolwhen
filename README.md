@@ -48,7 +48,9 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `.python-version` | Python |
 | `.nvmrc`, `.node-version` | Node.js |
 | `.ruby-version` | Ruby |
-| `go.mod` (the `go` directive) | Go |
+| `.php-version` | PHP |
+| `.go-version`, `go.mod` (the `go` directive) | Go |
+| `.terraform-version` | Terraform |
 | `mise.toml`, `.mise.toml`, `.tool-versions` | each tool listed under a bare name, and each package a `mise.toml` key names through a backend |
 | `Dockerfile`, `Dockerfile.*` | whatever each `FROM` names — an official image, or any image endoflife.date publishes a purl for — and the distribution its tag was built on |
 | `compose*.yml`, `docker-compose*.yml` (and `.yaml`) | the same, for each service's `image:`, unless the service has a `build:` and the image is what it builds |
@@ -282,8 +284,9 @@ have to be a git repository. One directory is read per run; to cover several,
 loop over them in the shell.
 
 Declarations are read from the runtime version files (.python-version,
-.nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
-lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
+.nvmrc, .node-version, .ruby-version, .php-version, .go-version,
+.terraform-version, the go directive in go.mod), the tool lists (mise.toml,
+.tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
 any composer.json, the dependencies of any package.json, pyproject.toml,
 requirements.txt or pom.xml, the target framework of any .csproj, .fsproj or
@@ -401,7 +404,7 @@ Exit codes:
 - **Lockfiles.** A manifest that pins no single version has its answer in the lockfile beside it, which is not read: `Gemfile.lock` says which Rails was resolved where the `Gemfile` only said `>= 6.0`, and `composer.lock` the same for `^7.4 || ^8.0`. Those lines are set aside rather than guessed at, and `--verbose` names them.
 - **Vulnerabilities.** They carry no date, so they do not belong on a timeline, and `osv-scanner`, `trivy`, and `grype` already read a directory for them. The two answers meet in one place worth saying out loud: once a runtime is past its end of life, the vulnerabilities found from then on are never fixed.
 - **Deprecated GitHub Actions.** `actions/checkout@v2` has no machine-readable source to track, and unlike an expired base image it does not fail quietly — the workflow says so the next time it runs.
-- **Terraform and cloud service versions.** The most valuable layer by far, but the one where the value is usually `var.eks_version` rather than a literal, which only Terraform itself can resolve. Later.
+- **Versions inside `.tf` files.** The most valuable layer by far, but the one where the value is usually `var.eks_version` rather than a literal, which only Terraform itself can resolve. Later. A `.terraform-version` is a different thing and is read: it names the Terraform itself, as a literal.
 - **`requires-python` in `pyproject.toml`.** It states a range — `>=3.9` — which says what the project accepts rather than what it runs on, and a range has no single cycle to date. The version actually in use is in `.python-version`, the Dockerfile, or the workflow.
 - **Scanning many directories.** One run reads one directory; a shell loop covers the rest.
 

@@ -21,6 +21,7 @@ func write(t *testing.T, dir, name, body string) {
 func TestDir(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, ".python-version", "2.7.18\n")
+	write(t, dir, ".terraform-version", "1.5.7\n")
 	write(t, dir, ".nvmrc", "iojs\n")
 	write(t, dir, "go.mod", "module example.com/x\n\ngo 1.16\n")
 	write(t, dir, "Dockerfile", "FROM python:3.7-bullseye\n")
@@ -58,9 +59,10 @@ func TestDir(t *testing.T) {
 		got[at] = d.Product + " " + d.Version
 	}
 	want := map[string]string{
-		".python-version:1": "python 2.7.18",
-		"go.mod:3":          "go 1.16",
-		"Dockerfile:1":      "python 3.7",
+		".python-version:1":    "python 2.7.18",
+		".terraform-version:1": "terraform 1.5.7",
+		"go.mod:3":             "go 1.16",
+		"Dockerfile:1":         "python 3.7",
 		// The tag also names the distribution the image was built on, which
 		// the catalog matches by its codename.
 		"Dockerfile:1 (base)":        " bullseye",
