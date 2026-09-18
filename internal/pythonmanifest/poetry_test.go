@@ -77,7 +77,6 @@ const poetryProject = `[tool.poetry]
 name = "demo"
 
 [tool.poetry.dependencies]
-python = "^3.9"
 django = "^4.2"
 numpy = "~1.14.0"
 apache-airflow = {version = "2.7.3", optional = true}
@@ -90,22 +89,12 @@ func TestExtractReadsAPoetryTable(t *testing.T) {
 	check(t, "pyproject.toml", poetryProject,
 		// Within a table the keys are sorted, and the project's own table
 		// is read before its groups.
-		want{"apache-airflow", "2.7.3", "2.7.3", "2.7.4", 8},
-		want{"django", "^4.2", "4.2", "5", 6},
-		want{"numpy", "~1.14.0", "1.14.0", "1.15", 7},
+		want{"apache-airflow", "2.7.3", "2.7.3", "2.7.4", 7},
+		want{"django", "^4.2", "4.2", "5", 5},
+		want{"numpy", "~1.14.0", "1.14.0", "1.15", 6},
 		// The same package asked for in two tables is sent to the line each
 		// table wrote.
-		want{"django", "^3.2", "3.2", "4", 11})
-}
-
-// Poetry reserves python for the interpreters the project accepts, which is
-// requires-python under another name and says what it accepts rather than
-// what it runs on.
-func TestExtractReadsNoPoetryPython(t *testing.T) {
-	ds, us := Extract("pyproject.toml", []byte("[tool.poetry.dependencies]\npython = \"^3.9\"\n"))
-	if len(ds) != 0 || len(us) != 0 {
-		t.Errorf("= %+v, %+v; want neither", ds, us)
-	}
+		want{"django", "^3.2", "3.2", "4", 10})
 }
 
 // An entry naming no version of its own is set aside like any requirement

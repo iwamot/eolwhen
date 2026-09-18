@@ -18,6 +18,10 @@ type poetryDecl struct {
 	name       string
 	constraint string
 	line       int
+	// runtime says the key is python, which Poetry reserves for the
+	// interpreters the project accepts. The catalog answers a runtime by
+	// name, as it does for a .python-version, and no purl is involved.
+	runtime bool
 }
 
 // poetryDoc is the shape of the tables Poetry keeps its dependencies in. A
@@ -43,21 +47,22 @@ func readPoetry(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	var ds []decl.Decl
 	var us []decl.Unreadable
 	for _, p := range poetry(data) {
+		ecosystem := ecosystemOf(p.runtime)
 		src := decl.Source{File: path, Line: p.line}
 		allowed, ok := poetryAllows(p.constraint)
 		if !ok {
 			us = append(us, decl.Unreadable{
 				Source:    src,
-				Ecosystem: Ecosystem,
+				Ecosystem: ecosystem,
 				Product:   p.name,
 				Text:      p.constraint,
-				Reason:    unsettled,
+				Reason:    reason(p.runtime),
 				Moving:    true,
 			})
 			continue
 		}
 		ds = append(ds, decl.Decl{
-			Ecosystem: Ecosystem,
+			Ecosystem: ecosystem,
 			Product:   p.name,
 			Version:   p.constraint,
 			Allows:    allowed,
@@ -71,9 +76,10 @@ func readPoetry(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 // for what it says and then scanned for where it said it, the TOML reader
 // having no line numbers in it.
 //
-// The python key is left alone. Poetry reserves it for the interpreters the
-// project accepts, which is requires-python under another name and says what
-// the project accepts rather than what it runs on.
+// The python key is among them. Poetry reserves it for the interpreters the
+// project accepts, which is requires-python under another name, and it is
+// read the same way: as a requirement on the interpreter, which names a
+// cycle when it is written closed and nothing when it is not.
 func poetry(data []byte) []poetryDecl {
 	var doc poetryDoc
 	md, err := toml.Decode(string(data), &doc)
@@ -84,13 +90,11 @@ func poetry(data []byte) []poetryDecl {
 	var out []poetryDecl
 	for _, t := range poetryDependencies(doc) {
 		for _, key := range slices.Sorted(maps.Keys(t.deps)) {
-			if key == "python" {
-				continue
-			}
 			out = append(out, poetryDecl{
 				name:       key,
 				constraint: poetryConstraint(md, t.deps[key]),
 				line:       lines[t.name+"."+key],
+				runtime:    key == "python",
 			})
 		}
 	}

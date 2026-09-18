@@ -63,7 +63,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 				Ecosystem: ecosystem,
 				Product:   name,
 				Text:      m.Value,
-				Reason:    "names no single version here, so the lockfile decides which one",
+				Reason:    reason(ecosystem == ""),
 				Moving:    true,
 			})
 			continue
@@ -77,6 +77,17 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 		})
 	}
 	return ds, us
+}
+
+// reason says why a requirement naming no one version was set aside, which
+// differs for the one that is not on a package. Which PHP a project runs on
+// is whatever the machine has, not what a composer.lock resolved, and a
+// range there is the project saying what it will put up with.
+func reason(runtime bool) string {
+	if runtime {
+		return "names no single version here, so whatever the host has decides which one"
+	}
+	return "names no single version here, so the lockfile decides which one"
 }
 
 // platform reports whether a name is one of Composer's reserved names for

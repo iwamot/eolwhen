@@ -162,3 +162,32 @@ func TestExtractReadsNothingElse(t *testing.T) {
 		})
 	}
 }
+
+// engines names what a project asks of its host, which is a runtime rather
+// than a package: the catalog answers it by name, so no purl is involved.
+func TestExtractReadsEngines(t *testing.T) {
+	t.Run("closed, where it names one cycle", func(t *testing.T) {
+		ds, us := Extract("package.json", []byte(`{"engines": {"node": "^18"}}`))
+		if len(us) != 0 {
+			t.Fatalf("unreadable = %+v; want none", us)
+		}
+		if len(ds) != 1 || ds[0].Ecosystem != "" || ds[0].Product != "node" || ds[0].Allows.From != "18" || ds[0].Allows.Below != "19" {
+			t.Errorf("= %+v; want node 18..19 with no ecosystem", ds)
+		}
+	})
+	// Which is not how one is usually written. A floor with no ceiling is
+	// the project saying what it will put up with, and names no cycle.
+	t.Run("open, as it is usually written", func(t *testing.T) {
+		ds, us := Extract("package.json", []byte("{\n  \"engines\": {\n    \"node\": \">=22\"\n  }\n}"))
+		want := decl.Unreadable{
+			Source:  decl.Source{File: "package.json", Line: 3},
+			Product: "node",
+			Text:    ">=22",
+			Reason:  hostDecides,
+			Moving:  true,
+		}
+		if len(ds) != 0 || len(us) != 1 || us[0] != want {
+			t.Errorf("= %+v, %+v; want the one set-aside line", ds, us)
+		}
+	})
+}
