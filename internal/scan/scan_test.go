@@ -37,6 +37,7 @@ func TestDir(t *testing.T) {
 	write(t, dir, "package.json", "{\n  \"packageManager\": \"pnpm@9.15.4\",\n  \"dependencies\": {\n    \"next\": \"~13.4.1\"\n  }\n}\n")
 	write(t, dir, "requirements.txt", "# runtime\nDjango==2.2.0\n")
 	write(t, dir, "pyproject.toml", "[project]\ndependencies = [\"wagtail~=5.2.0\"]\n")
+	write(t, dir, "service/pom.xml", "<project>\n  <dependencies>\n    <dependency>\n      <groupId>log4j</groupId>\n      <artifactId>log4j</artifactId>\n      <version>1.2.17</version>\n    </dependency>\n  </dependencies>\n</project>\n")
 	// A YAML file is a workflow because of where it sits, so this one is not.
 	write(t, dir, ".github/dependabot.yml", "jobs:\n  a:\n    runs-on: macos-12\n")
 	// Somebody else's declarations, which this directory is not answering
@@ -75,6 +76,7 @@ func TestDir(t *testing.T) {
 		"package.json:4":             "next ~13.4.1",
 		"requirements.txt:2":         "Django ==2.2.0",
 		"pyproject.toml:2":           "wagtail ~=5.2.0",
+		"service/pom.xml:6":          "log4j/log4j 1.2.17",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("declarations = %v; want %v", got, want)

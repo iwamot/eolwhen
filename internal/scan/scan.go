@@ -15,6 +15,7 @@ import (
 	"github.com/iwamot/eolwhen/internal/dockerfile"
 	"github.com/iwamot/eolwhen/internal/gemfile"
 	"github.com/iwamot/eolwhen/internal/packagejson"
+	"github.com/iwamot/eolwhen/internal/pomxml"
 	"github.com/iwamot/eolwhen/internal/projectfile"
 	"github.com/iwamot/eolwhen/internal/pythonmanifest"
 	"github.com/iwamot/eolwhen/internal/runtimefile"
@@ -147,6 +148,9 @@ func extractorFor(path string) (extractor, bool) {
 	}
 	if projectfile.Matches(filepath.Base(path)) {
 		return projectfile.Extract, true
+	}
+	if pomxml.Matches(filepath.Base(path)) {
+		return pomxml.Extract, true
 	}
 	if workflow.Matches(path) {
 		return workflow.Extract, true
