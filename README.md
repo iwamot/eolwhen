@@ -54,6 +54,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `compose*.yml`, `docker-compose*.yml` (and `.yaml`) | the same, for each service's `image:`, unless the service has a `build:` and the image is what it builds |
 | `Gemfile`, `gems.rb` | each `gem` whose name endoflife.date publishes as a gem — the framework the application sits on, not the libraries around it |
 | `composer.json` | each package in `require` and `require-dev` whose name endoflife.date publishes, and the `php` the project runs on |
+| `*.csproj`, `*.fsproj`, `*.vbproj` | the target framework the project runs on — Microsoft .NET, or the .NET Framework |
 | `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
 A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A key carrying a backend — `aqua:`, `go:`, `npm:` — names a package rather than a tool, and a package is read where the file it sits in fixes the registry, as a `Gemfile` and a `composer.json` do. A backend written as a prefix on a key is not read that way yet.
@@ -126,6 +127,20 @@ $ eolwhen
 A requirement usually pins a range rather than a version, and a range is still an answer when the whole of it sits inside one cycle, because a row is about a cycle. Every version `~> 6.1.0` allows is Rails 6.1 and every version `^8.0` allows is Laravel 8, so those lines are dated. `~> 6` is not: it admits both 6.0 and 6.1, and which one was installed is written in the lockfile, which this does not read. Neither is one that leaves the upper end open, as `>= 6.0` does, nor one that leaves two ranges behind, as the union `^7.4 || ^8.0` does, nor a package given no requirement at all. Those are set aside without a word, and `--verbose` names them.
 
 A version with a letter in it — `7.1.0.rc1` — is passed over too. Where a pre-release falls against a release is the package manager's rule rather than a number's, and getting it wrong would date a line by a cycle it is not in.
+
+### Which .NET a target framework names
+
+A project file says which runtime the project runs on, and nothing is guessed from the text there either: the target framework monikers are a vocabulary .NET defines. The word in front of the digits says which .NET it is. `net6.0` is Microsoft .NET and `net472` is the .NET Framework, which are different products on different calendars, and the dot is what tells them apart — the `.0` in `net5.0` was added so that the two could never be read as each other. A moniker of bare digits is one digit per segment, so `net481` is 4.8.1. `net35` reads as the 3.5 service pack, which is the only 3.5 still installable and the cycle endoflife.date tracks; reading it as a plain 3.5 would reach no cycle at all and date a target that is still supported by the day the 4.0 above it expired.
+
+A platform on the end — the `-windows` of `net8.0-windows` — says which APIs the target adds rather than which version of it is meant, so it is cut away. `<TargetFrameworks>` holds several at once, and each is a declaration of its own, as each line of a `.python-version` is. A project written before the SDK-style project existed spells the same declaration `<TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>`, which only ever named a .NET Framework.
+
+```
+$ eolwhen
+-1606d  2022-04-26  dotnetfx 4.5.2  src/Legacy/Legacy.csproj:4
+ -675d  2024-11-12  dotnet 6        src/Api/Api.csproj:3
+```
+
+A moniker naming something that is not a runtime is looked up under the name it gave, and nothing answers to it: `netstandard2.0` is an API contract rather than a thing that runs, and nobody publishes an end-of-life date for one, so it is set aside like a tool the catalog does not track. A target framework written as `$(DefaultTargetFramework)` names no version of its own — the value is in a `Directory.Build.props` or on the command line, neither of which is read — so there is nothing to place and nothing to go and change. `--verbose` accounts for both.
 
 ## Using it
 
@@ -237,10 +252,11 @@ Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, and the runs-on labels and setup-* versions in
-.github/workflows, then matched against endoflife.date. DIR is searched to
-the bottom, skipping directories that hold somebody else's code:
-node_modules, vendor, .venv and the like.
+any composer.json, the target framework of any .csproj, .fsproj or .vbproj,
+and the runs-on labels and setup-* versions in .github/workflows, then
+matched against endoflife.date. DIR is searched to the bottom, skipping
+directories that hold somebody else's code: node_modules, vendor, .venv and
+the like.
 
 A package reaches a product only through the package names endoflife.date
 publishes, so rails is Ruby on Rails on upstream's word while pg is the
@@ -251,6 +267,13 @@ a range rather than a version still names a cycle when the whole range sits
 inside one: ~> 6.1.0 is Rails 6.1 and ^8.0 is Laravel 8. One that does not,
 or a package left to the lockfile, has no one version to date and is set
 aside.
+
+A target framework moniker names the runtime a project runs on, and the dot
+says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET
+Framework, a different product on a calendar of its own. A moniker naming
+something that is not a runtime, such as netstandard2.0, is set aside like
+software the catalog does not track. So is one written as an MSBuild
+property, the value being in a file this does not read.
 
 An image outside the Docker official library is read through the Docker Hub
 repository endoflife.date publishes for each product, so

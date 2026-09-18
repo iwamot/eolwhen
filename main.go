@@ -53,10 +53,11 @@ Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, and the runs-on labels and setup-* versions in
-.github/workflows, then matched against endoflife.date. DIR is searched to
-the bottom, skipping directories that hold somebody else's code:
-node_modules, vendor, .venv and the like.
+any composer.json, the target framework of any .csproj, .fsproj or .vbproj,
+and the runs-on labels and setup-* versions in .github/workflows, then
+matched against endoflife.date. DIR is searched to the bottom, skipping
+directories that hold somebody else's code: node_modules, vendor, .venv and
+the like.
 
 A package reaches a product only through the package names endoflife.date
 publishes, so rails is Ruby on Rails on upstream's word while pg is the
@@ -67,6 +68,13 @@ a range rather than a version still names a cycle when the whole range sits
 inside one: ~> 6.1.0 is Rails 6.1 and ^8.0 is Laravel 8. One that does not,
 or a package left to the lockfile, has no one version to date and is set
 aside.
+
+A target framework moniker names the runtime a project runs on, and the dot
+says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET
+Framework, a different product on a calendar of its own. A moniker naming
+something that is not a runtime, such as netstandard2.0, is set aside like
+software the catalog does not track. So is one written as an MSBuild
+property, the value being in a file this does not read.
 
 An image outside the Docker official library is read through the Docker Hub
 repository endoflife.date publishes for each product, so
