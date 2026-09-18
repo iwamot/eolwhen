@@ -116,9 +116,40 @@ func (p Product) packages() []pkg {
 		if err != nil || ecosystem == "" || decoded == "" {
 			continue
 		}
-		out = append(out, pkg{strings.ToLower(ecosystem), strings.ToLower(decoded)})
+		eco := strings.ToLower(ecosystem)
+		out = append(out, pkg{eco, normalized(eco, decoded)})
 	}
 	return out
+}
+
+// normalized is a package name as its registry compares one, which is what
+// makes two spellings of a name the same package.
+//
+// PyPI is the one registry here that says so outright: it compares a name
+// with every run of dashes, underscores and dots reduced to a single dash
+// and the whole lowercased, so Django and django are one name, and so are
+// typing_extensions and typing-extensions. A manifest may write any of them
+// and reach the product. Nowhere else says anything of the kind, so nowhere
+// else gets more than the lowercase.
+func normalized(ecosystem, name string) string {
+	name = strings.ToLower(name)
+	if ecosystem != "pypi" {
+		return name
+	}
+	var b strings.Builder
+	separated := false
+	for _, r := range name {
+		if r == '-' || r == '_' || r == '.' {
+			if !separated {
+				b.WriteByte('-')
+				separated = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		separated = false
+	}
+	return b.String()
 }
 
 // Cycles lists the cycle names, for matching a declared version.
@@ -279,7 +310,8 @@ func (c *Catalog) Lookup(name string) (Product, bool) {
 // nobody published a purl for is a declaration of software the catalog does
 // not track, not a line to go and look at.
 func (c *Catalog) ByPackage(ecosystem, name string) (Product, bool) {
-	i, ok := c.byPackage[strings.ToLower(ecosystem)+"/"+strings.ToLower(name)]
+	eco := strings.ToLower(ecosystem)
+	i, ok := c.byPackage[eco+"/"+normalized(eco, name)]
 	if !ok {
 		return Product{}, false
 	}

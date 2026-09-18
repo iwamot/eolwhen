@@ -16,6 +16,7 @@ import (
 	"github.com/iwamot/eolwhen/internal/gemfile"
 	"github.com/iwamot/eolwhen/internal/packagejson"
 	"github.com/iwamot/eolwhen/internal/projectfile"
+	"github.com/iwamot/eolwhen/internal/pythonmanifest"
 	"github.com/iwamot/eolwhen/internal/runtimefile"
 	"github.com/iwamot/eolwhen/internal/toolfile"
 	"github.com/iwamot/eolwhen/internal/workflow"
@@ -140,6 +141,9 @@ func extractorFor(path string) (extractor, bool) {
 	}
 	if packagejson.Matches(filepath.Base(path)) {
 		return packagejson.Extract, true
+	}
+	if pythonmanifest.Matches(path) {
+		return pythonmanifest.Extract, true
 	}
 	if projectfile.Matches(filepath.Base(path)) {
 		return projectfile.Extract, true
