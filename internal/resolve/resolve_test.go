@@ -435,8 +435,8 @@ func TestAllSetsAsideARangeOverTwoCycles(t *testing.T) {
 }
 
 // TestAllPlacesARangeBelowEveryCycle covers the range whose whole of it
-// predates the catalog: the lowest version it admits is what dates it, the
-// same as a version written on its own.
+// predates the catalog: every version it admits is older than the oldest
+// cycle, so it is dated the same as a version written on its own.
 func TestAllPlacesARangeBelowEveryCycle(t *testing.T) {
 	c := loadPkg(t)
 	r := All(c, []decl.Decl{gem("rails", "~> 3.2.0", "3.2.0", "3.3")}, nil)
@@ -445,6 +445,21 @@ func TestAllPlacesARangeBelowEveryCycle(t *testing.T) {
 	}
 	if r.Findings[0].Cycle != "<4.2" {
 		t.Errorf("Cycle = %q; want <4.2", r.Findings[0].Cycle)
+	}
+}
+
+// TestAllDoesNotPlaceARangeReachingTheCatalogBelowEveryCycle: a range that
+// starts below the oldest cycle may allow versions the catalog tracks as
+// well, and the day the oldest cycle ended says nothing about those. Which
+// one a resolver picked is in the lockfile, so the line is left to it.
+func TestAllDoesNotPlaceARangeReachingTheCatalogBelowEveryCycle(t *testing.T) {
+	c := loadPkg(t)
+	r := All(c, []decl.Decl{gem("rails", ">= 3.0, < 8.0", "3.0", "8.0")}, nil)
+	if len(r.Findings) != 0 {
+		t.Fatalf("Findings = %+v; want none", r.Findings)
+	}
+	if len(r.Moving) != 1 {
+		t.Fatalf("Moving = %+v; want 1", r.Moving)
 	}
 }
 

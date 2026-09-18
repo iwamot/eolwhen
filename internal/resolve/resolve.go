@@ -93,7 +93,7 @@ func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 		}
 		name, ok := reach(p, d)
 		if !ok {
-			if cycle, release, older := predating(p, lowest(d)); older {
+			if cycle, release, older := predating(p, d); older {
 				r.place(p.Name, cycle, release, d.Source)
 				continue
 			}
@@ -175,7 +175,7 @@ func product(c *catalog.Catalog, ecosystem, name string) (catalog.Product, bool)
 	return c.ByImage(name)
 }
 
-// predating places a version older than every cycle the catalog tracks.
+// predating places a declaration older than every cycle the catalog tracks.
 //
 // A redis 3.2 in a Compose file is the most neglected line in the
 // directory, and reading it as a version nobody has heard of is the one
@@ -186,12 +186,17 @@ func product(c *catalog.Catalog, ecosystem, name string) (catalog.Product, bool)
 // so that the row says what it knows — out of support by this date — and
 // not a day it cannot know.
 //
+// A range answers with the whole of its span rather than with the version it
+// starts at. `>= 3.0, < 8.0` begins below the oldest cycle Rails has and
+// allows every cycle after it as well, so the day the oldest one ended says
+// nothing about it; what a resolver picked is in the lockfile instead.
+//
 // A product whose cycles are words has no ordering of this kind, and one
 // whose oldest cycle has no end date announced yet has no day to carry
 // over; both fall through to being reported.
-func predating(p catalog.Product, v string) (string, catalog.Release, bool) {
+func predating(p catalog.Product, d decl.Decl) (string, catalog.Release, bool) {
 	oldest, ok := cycle.Oldest(p.Cycles())
-	if !ok || !cycle.Before(v, oldest) {
+	if !ok || !below(d, oldest) {
 		return "", catalog.Release{}, false
 	}
 	release := p.Release(oldest)
@@ -296,6 +301,16 @@ func match(p catalog.Product, v string) (string, bool) {
 	return "", false
 }
 
+// below reports whether every version a declaration allows is older than the
+// oldest cycle the catalog tracks: a range answers with the whole of its
+// span, a version with itself.
+func below(d decl.Decl, oldest string) bool {
+	if d.Allows.Closed() {
+		return d.Allows.Precedes(oldest)
+	}
+	return cycle.Before(d.Version, oldest)
+}
+
 // reach finds the cycle a declaration lands in: the one its version belongs
 // to, or, when the file pinned a range instead, the one cycle the whole
 // range sits inside. A range spanning two cycles reaches neither, because
@@ -305,15 +320,4 @@ func reach(p catalog.Product, d decl.Decl) (string, bool) {
 		return cycle.Sole(d.Allows, p.Cycles())
 	}
 	return match(p, d.Version)
-}
-
-// lowest is the version a declaration starts at, which is the whole of it
-// unless it named a range. A range with no floor starts at no version at
-// all, and answering with the lowest version there is would place a `< 7.0`
-// below every cycle the catalog tracks.
-func lowest(d decl.Decl) string {
-	if d.Allows.From != "" {
-		return d.Allows.From
-	}
-	return d.Version
 }
