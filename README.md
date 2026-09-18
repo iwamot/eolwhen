@@ -147,7 +147,7 @@ $ eolwhen
  -717d  2024-10-01  rails 6.1  Gemfile:3
 ```
 
-A requirement usually pins a range rather than a version, and a range is still an answer when the whole of it sits inside one cycle, because a row is about a cycle. Every version `~> 6.1.0` allows is Rails 6.1 and every version `^8.0` allows is Laravel 8, so those lines are dated. `~> 6` is not: it admits both 6.0 and 6.1, and which one was installed is written in the lockfile, which this does not read. Neither is one that leaves the upper end open, as `>= 6.0` does, nor one that leaves two ranges behind, as the union `^7.4 || ^8.0` does, nor a package given no requirement at all. Those are set aside without a word, and `--verbose` names them.
+A requirement usually pins a range rather than a version, and a range is still an answer when one release cycle is the only one it can be, because a row is about a cycle. Every version `~> 6.1.0` allows is Rails 6.1 and every version `^8.0` allows is Laravel 8, so those lines are dated. `~> 6` is not: it admits both 6.0 and 6.1, and which one was installed is written in the lockfile, which this does not read. Neither is one that leaves the upper end open, as `>= 6.0` does, nor one that leaves two ranges behind, as the union `^7.4 || ^8.0` does, nor a package given no requirement at all. Those are set aside without a word, and `--verbose` names them.
 
 A version with a letter in it — `7.1.0.rc1` — is passed over too. Where a pre-release falls against a release is the package manager's rule rather than a number's, and getting it wrong would date a line by a cycle it is not in.
 
@@ -307,14 +307,14 @@ packageManager names the tool the project is run with and the exact version
 corepack installs. A requirement on the host is read like any other: >=22
 names a floor and no ceiling and so names no cycle, while ^18 names one.
 
-A requirement that pins a range rather
-than a version still names a cycle when the whole range sits inside one:
-~> 6.1.0 is Rails 6.1, ^8.0 is Laravel 8 and 3.4.x is Tailwind CSS 3.4. One
-that does not, or a package left to the lockfile, has no one version to
-date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
-in a composer.json and every 1.2.x in a package.json. Python's decide more
-often than most, == naming one version and ~=4.2.0 one release cycle, which
-is how a requirements.txt is usually written; a Poetry table in the same
+A requirement that pins a range rather than a version still names a cycle
+when one is the only cycle it can be: ~> 6.1.0 is Rails 6.1, ^8.0 is
+Laravel 8 and 3.4.x is Tailwind CSS 3.4. One that could be two, or a
+package left to the lockfile, has no one version to date and is set aside.
+Each file's operators are its own: ~1.2 is every 1.x in a composer.json and
+every 1.2.x in a package.json. Python's decide more often than most, ==
+naming one version and ~=4.2.0 one release cycle, which is how a
+requirements.txt is usually written; a Poetry table in the same
 pyproject.toml writes npm's operators instead, and is read with them. A
 pom.xml settles fewer: a version written as ${spring.version} is read where
 the same file sets that property, and left to Maven where a parent POM does.

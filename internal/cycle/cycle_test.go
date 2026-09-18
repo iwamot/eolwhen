@@ -163,8 +163,8 @@ func TestSole(t *testing.T) {
 		want   string
 		ok     bool
 	}{
-		// Caught: the whole range sits inside one cycle, so the cycle is
-		// known even though the version is not.
+		// Caught: one cycle is the only one the range reaches, so the cycle
+		// is known even though the version is not.
 		{"pessimistic to the patch", "6.1.0", "6.2", rails, "6.1", true},
 		{"pessimistic to the minor", "6.1", "7", rails, "6.1", true},
 		{"one version", "6.1.7.6", "6.1.7.7", rails, "6.1", true},
