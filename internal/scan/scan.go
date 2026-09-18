@@ -14,6 +14,7 @@ import (
 	"github.com/iwamot/eolwhen/internal/decl"
 	"github.com/iwamot/eolwhen/internal/dockerfile"
 	"github.com/iwamot/eolwhen/internal/gemfile"
+	"github.com/iwamot/eolwhen/internal/projectfile"
 	"github.com/iwamot/eolwhen/internal/runtimefile"
 	"github.com/iwamot/eolwhen/internal/toolfile"
 	"github.com/iwamot/eolwhen/internal/workflow"
@@ -135,6 +136,9 @@ func extractorFor(path string) (extractor, bool) {
 	}
 	if composerjson.Matches(filepath.Base(path)) {
 		return composerjson.Extract, true
+	}
+	if projectfile.Matches(filepath.Base(path)) {
+		return projectfile.Extract, true
 	}
 	if workflow.Matches(path) {
 		return workflow.Extract, true
