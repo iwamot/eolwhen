@@ -49,6 +49,12 @@ func TestEnds(t *testing.T) {
 		{"a line to the minor", AfterLine, "6.1", "7", true},
 		{"a line of one segment holds nothing", AfterLine, "6", "7", true},
 
+		// AfterMinor: the minor is held where there is one, which is where
+		// npm's tilde parts from Composer's.
+		{"a tilde to the patch", AfterMinor, "1.2.3", "1.3", true},
+		{"a tilde to the minor", AfterMinor, "1.2", "1.3", true},
+		{"a tilde with no minor to hold", AfterMinor, "1", "2", true},
+
 		// AfterCompatible: everything from the first meaningful segment is
 		// free, and below 1.0 that segment is not the first.
 		{"a caret on a major", AfterCompatible, "8.1", "9", true},
@@ -60,6 +66,7 @@ func TestEnds(t *testing.T) {
 		// Undecidable: not a version to do arithmetic on.
 		{"a pre-release", Next, "7.1.0.rc1", "", false},
 		{"a word", AfterLine, "latest", "", false},
+		{"a dist-tag", AfterMinor, "next", "", false},
 		{"empty", AfterCompatible, "", "", false},
 		{"an empty segment", Next, "6..1", "", false},
 		{"a negative segment", AfterLine, "6.-1", "", false},

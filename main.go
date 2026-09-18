@@ -53,21 +53,24 @@ Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, the target framework of any .csproj, .fsproj or .vbproj,
-and the runs-on labels and setup-* versions in .github/workflows, then
-matched against endoflife.date. DIR is searched to the bottom, skipping
-directories that hold somebody else's code: node_modules, vendor, .venv and
-the like.
+any composer.json, the dependencies of any package.json, the target
+framework of any .csproj, .fsproj or .vbproj, and the runs-on labels and
+setup-* versions in .github/workflows, then matched against endoflife.date.
+DIR is searched to the bottom, skipping directories that hold somebody
+else's code: node_modules, vendor, .venv and the like.
 
 A package reaches a product only through the package names endoflife.date
 publishes, so rails is Ruby on Rails on upstream's word while pg is the
 PostgreSQL driver and reaches nothing. A composer.json's php is the one
 exception, Composer having reserved that name for the language, so it
-declares a runtime the way a .python-version does. A requirement that pins
-a range rather than a version still names a cycle when the whole range sits
-inside one: ~> 6.1.0 is Rails 6.1 and ^8.0 is Laravel 8. One that does not,
-or a package left to the lockfile, has no one version to date and is set
-aside.
+declares a runtime the way a .python-version does. A package.json's
+packageManager is another, naming the tool the project is run with and the
+exact version corepack installs. A requirement that pins a range rather
+than a version still names a cycle when the whole range sits inside one:
+~> 6.1.0 is Rails 6.1, ^8.0 is Laravel 8 and 3.4.x is Tailwind CSS 3.4. One
+that does not, or a package left to the lockfile, has no one version to
+date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
+in a composer.json and every 1.2.x in a package.json.
 
 A target framework moniker names the runtime a project runs on, and the dot
 says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET

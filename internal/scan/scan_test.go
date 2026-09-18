@@ -34,6 +34,7 @@ func TestDir(t *testing.T) {
 	write(t, dir, "Gemfile", "source \"https://rubygems.org\"\ngem \"rails\", \"~> 6.1.0\"\n")
 	write(t, dir, "composer.json", "{\n  \"require\": {\n    \"php\": \"^7.4\"\n  }\n}\n")
 	write(t, dir, "src/App/App.csproj", "<Project>\n  <PropertyGroup>\n    <TargetFramework>net6.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n")
+	write(t, dir, "package.json", "{\n  \"packageManager\": \"pnpm@9.15.4\",\n  \"dependencies\": {\n    \"next\": \"~13.4.1\"\n  }\n}\n")
 	// A YAML file is a workflow because of where it sits, so this one is not.
 	write(t, dir, ".github/dependabot.yml", "jobs:\n  a:\n    runs-on: macos-12\n")
 	// Somebody else's declarations, which this directory is not answering
@@ -68,6 +69,8 @@ func TestDir(t *testing.T) {
 		"Gemfile:2":                  "rails ~> 6.1.0",
 		"composer.json:3":            "php ^7.4",
 		"src/App/App.csproj:3":       "dotnet 6.0",
+		"package.json:2":             "pnpm 9.15.4",
+		"package.json:4":             "next ~13.4.1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("declarations = %v; want %v", got, want)

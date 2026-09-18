@@ -54,6 +54,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `compose*.yml`, `docker-compose*.yml` (and `.yaml`) | the same, for each service's `image:`, unless the service has a `build:` and the image is what it builds |
 | `Gemfile`, `gems.rb` | each `gem` whose name endoflife.date publishes as a gem — the framework the application sits on, not the libraries around it |
 | `composer.json` | each package in `require` and `require-dev` whose name endoflife.date publishes, and the `php` the project runs on |
+| `package.json` | each package in `dependencies`, `devDependencies`, `peerDependencies` and `optionalDependencies` whose name endoflife.date publishes, and the `packageManager` the project is run with |
 | `*.csproj`, `*.fsproj`, `*.vbproj` | the target framework the project runs on — Microsoft .NET, or the .NET Framework |
 | `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
@@ -129,6 +130,10 @@ $ eolwhen
 A requirement usually pins a range rather than a version, and a range is still an answer when the whole of it sits inside one cycle, because a row is about a cycle. Every version `~> 6.1.0` allows is Rails 6.1 and every version `^8.0` allows is Laravel 8, so those lines are dated. `~> 6` is not: it admits both 6.0 and 6.1, and which one was installed is written in the lockfile, which this does not read. Neither is one that leaves the upper end open, as `>= 6.0` does, nor one that leaves two ranges behind, as the union `^7.4 || ^8.0` does, nor a package given no requirement at all. Those are set aside without a word, and `--verbose` names them.
 
 A version with a letter in it — `7.1.0.rc1` — is passed over too. Where a pre-release falls against a release is the package manager's rule rather than a number's, and getting it wrong would date a line by a cycle it is not in.
+
+Each manifest writes its ranges in its own operators, and the same three characters can mean different things in two files. `~1.2` in a `composer.json` is every 1.x, while `~1.2` in a `package.json` is every 1.2.x, so each file is read by its own arithmetic rather than by a shared guess. A `package.json` also writes a line of versions as `16.x` or `3.4.*`, which names a cycle as squarely as a caret does. What it leaves for the lockfile is read as that: a union (`^7 || ^8`), a hyphen range, a floor with no ceiling, an alias (`npm:lodash-es@^4`), a `workspace:` or `file:` or repository requirement, and a dist-tag such as `latest`.
+
+A `package.json` has a line of its own that is not a dependency. `packageManager` names the package manager the project is run with and the exact version of it, which is what corepack installs, so it declares a tool the way a `mise.toml` entry does. The field's rule is one exact version, so a range or a `latest` there is a line to go and look at rather than one a resolver settles.
 
 ### Which .NET a target framework names
 
@@ -254,21 +259,24 @@ Declarations are read from the runtime version files (.python-version,
 .nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
 lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, the target framework of any .csproj, .fsproj or .vbproj,
-and the runs-on labels and setup-* versions in .github/workflows, then
-matched against endoflife.date. DIR is searched to the bottom, skipping
-directories that hold somebody else's code: node_modules, vendor, .venv and
-the like.
+any composer.json, the dependencies of any package.json, the target
+framework of any .csproj, .fsproj or .vbproj, and the runs-on labels and
+setup-* versions in .github/workflows, then matched against endoflife.date.
+DIR is searched to the bottom, skipping directories that hold somebody
+else's code: node_modules, vendor, .venv and the like.
 
 A package reaches a product only through the package names endoflife.date
 publishes, so rails is Ruby on Rails on upstream's word while pg is the
 PostgreSQL driver and reaches nothing. A composer.json's php is the one
 exception, Composer having reserved that name for the language, so it
-declares a runtime the way a .python-version does. A requirement that pins
-a range rather than a version still names a cycle when the whole range sits
-inside one: ~> 6.1.0 is Rails 6.1 and ^8.0 is Laravel 8. One that does not,
-or a package left to the lockfile, has no one version to date and is set
-aside.
+declares a runtime the way a .python-version does. A package.json's
+packageManager is another, naming the tool the project is run with and the
+exact version corepack installs. A requirement that pins a range rather
+than a version still names a cycle when the whole range sits inside one:
+~> 6.1.0 is Rails 6.1, ^8.0 is Laravel 8 and 3.4.x is Tailwind CSS 3.4. One
+that does not, or a package left to the lockfile, has no one version to
+date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
+in a composer.json and every 1.2.x in a package.json.
 
 A target framework moniker names the runtime a project runs on, and the dot
 says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET
@@ -354,7 +362,7 @@ Exit codes:
 ## Out of scope
 
 - **Libraries.** A manifest is mostly libraries, and a library rarely has an end of life: it is released until it is not, and "old" is not "unsupported" when nobody promised support in the first place. Whether a library has been abandoned is a real question with no date behind it, and it belongs to [uzomuzo](https://github.com/future-architect/uzomuzo) and [xeol](https://github.com/xeol-io/xeol). What is read here is the other half of a manifest — the framework the application sits on, which publishes a support calendar for the same reason a distribution does. The two are told apart by the package names endoflife.date publishes and by nothing else, so the line is drawn by upstream rather than guessed at here.
-- **Manifests other than a `Gemfile` and a `composer.json`.** `package.json` and `pyproject.toml` declare frameworks the same way, and each needs its own reading of how a requirement pins a version. Later.
+- **Manifests other than a `Gemfile`, a `composer.json` and a `package.json`.** `pyproject.toml` and `requirements.txt` declare frameworks the same way, and each needs its own reading of how a requirement pins a version. Later.
 - **Lockfiles.** A manifest that pins no single version has its answer in the lockfile beside it, which is not read: `Gemfile.lock` says which Rails was resolved where the `Gemfile` only said `>= 6.0`, and `composer.lock` the same for `^7.4 || ^8.0`. Those lines are set aside rather than guessed at, and `--verbose` names them.
 - **Vulnerabilities.** They carry no date, so they do not belong on a timeline, and `osv-scanner`, `trivy`, and `grype` already read a directory for them. The two answers meet in one place worth saying out loud: once a runtime is past its end of life, the vulnerabilities found from then on are never fixed.
 - **Deprecated GitHub Actions.** `actions/checkout@v2` has no machine-readable source to track, and unlike an expired base image it does not fail quietly — the workflow says so the next time it runs.
