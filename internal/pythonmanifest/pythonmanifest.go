@@ -31,6 +31,13 @@ import (
 // Ecosystem is the purl type a Python package name belongs to.
 const Ecosystem = "pypi"
 
+// unsettled is what is said about a requirement naming no one version.
+//
+// Not the lockfile the other manifests are told to blame: a requirements.txt
+// is often the whole of what a project pins, with nothing beside it to hold
+// the answer.
+const unsettled = "names no single version here, so what gets installed decides which one"
+
 // Matches reports whether a file is one of the manifests this reads.
 //
 // A requirements file is named by convention rather than by a rule, and
@@ -52,7 +59,11 @@ func Matches(path string) bool {
 // Extract reads one manifest.
 func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	if filepath.Base(path) == "pyproject.toml" {
-		return read(path, pyproject(data))
+		// A pyproject.toml may declare its dependencies either way, and a
+		// project moving from one to the other has both for a while.
+		ds, us := read(path, pyproject(data))
+		poetryDs, poetryUs := readPoetry(path, data)
+		return append(ds, poetryDs...), append(us, poetryUs...)
 	}
 	return read(path, requirementsTxt(data))
 }
@@ -78,15 +89,12 @@ func read(path string, entries []entry) ([]decl.Decl, []decl.Unreadable) {
 		text := strings.TrimSpace(specifier)
 		allowed, ok := allows(specifier)
 		if !ok {
-			// Not the lockfile the other manifests are told to blame: a
-			// requirements.txt is often the whole of what a project pins,
-			// with nothing beside it to hold the answer.
 			us = append(us, decl.Unreadable{
 				Source:    src,
 				Ecosystem: Ecosystem,
 				Product:   name,
 				Text:      text,
-				Reason:    "names no single version here, so what gets installed decides which one",
+				Reason:    unsettled,
 				Moving:    true,
 			})
 			continue

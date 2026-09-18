@@ -73,7 +73,8 @@ that does not, or a package left to the lockfile, has no one version to
 date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
 in a composer.json and every 1.2.x in a package.json. Python's decide more
 often than most, == naming one version and ~=4.2.0 one release cycle, which
-is how a requirements.txt is usually written.
+is how a requirements.txt is usually written; a Poetry table in the same
+pyproject.toml writes npm's operators instead, and is read with them.
 
 A target framework moniker names the runtime a project runs on, and the dot
 says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET
