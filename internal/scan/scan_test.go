@@ -35,6 +35,8 @@ func TestDir(t *testing.T) {
 	write(t, dir, "composer.json", "{\n  \"require\": {\n    \"php\": \"^7.4\"\n  }\n}\n")
 	write(t, dir, "src/App/App.csproj", "<Project>\n  <PropertyGroup>\n    <TargetFramework>net6.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n")
 	write(t, dir, "package.json", "{\n  \"packageManager\": \"pnpm@9.15.4\",\n  \"dependencies\": {\n    \"next\": \"~13.4.1\"\n  }\n}\n")
+	write(t, dir, "requirements.txt", "# runtime\nDjango==2.2.0\n")
+	write(t, dir, "pyproject.toml", "[project]\ndependencies = [\"wagtail~=5.2.0\"]\n")
 	// A YAML file is a workflow because of where it sits, so this one is not.
 	write(t, dir, ".github/dependabot.yml", "jobs:\n  a:\n    runs-on: macos-12\n")
 	// Somebody else's declarations, which this directory is not answering
@@ -71,6 +73,8 @@ func TestDir(t *testing.T) {
 		"src/App/App.csproj:3":       "dotnet 6.0",
 		"package.json:2":             "pnpm 9.15.4",
 		"package.json:4":             "next ~13.4.1",
+		"requirements.txt:2":         "Django ==2.2.0",
+		"pyproject.toml:2":           "wagtail ~=5.2.0",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("declarations = %v; want %v", got, want)

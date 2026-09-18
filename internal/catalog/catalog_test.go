@@ -302,6 +302,12 @@ func TestByPackage(t *testing.T) {
 	  {"name":"postgresql","aliases":["pg"],"identifiers":[
 	    {"type":"purl","id":"pkg:docker/library/postgres"}
 	  ],"releases":[]},
+	  {"name":"django","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:pypi/Django"}
+	  ],"releases":[]},
+	  {"name":"typing-extensions","aliases":[],"identifiers":[
+	    {"type":"purl","id":"pkg:pypi/typing_extensions"}
+	  ],"releases":[]},
 	  {"name":"malformed","aliases":[],"identifiers":[
 	    {"type":"purl","id":"pkg:gem"},
 	    {"type":"purl","id":"npm/lodash"},
@@ -331,6 +337,17 @@ func TestByPackage(t *testing.T) {
 		{"", "rails", ""},
 		{"npm", "lodash", ""},
 		{"npm", "%zz", ""},
+		// PyPI compares a name with its dashes, underscores and dots
+		// reduced to one, so every spelling of it reaches the product —
+		// whichever of them the purl itself used.
+		{"pypi", "django", "django"},
+		{"pypi", "Django", "django"},
+		{"pypi", "typing_extensions", "typing-extensions"},
+		{"pypi", "typing-extensions", "typing-extensions"},
+		{"pypi", "Typing.Extensions", "typing-extensions"},
+		{"pypi", "typing__extensions", "typing-extensions"},
+		// Nowhere else says anything of the kind, so nowhere else gets it.
+		{"npm", "@angular.core", ""},
 	} {
 		p, ok := c.ByPackage(tt.ecosystem, tt.name)
 		if ok != (tt.want != "") || p.Name != tt.want {
