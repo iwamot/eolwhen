@@ -156,6 +156,11 @@ func TestReported(t *testing.T) {
 			"${{ matrix.os }}", "takes its runner from an expression"},
 		{"a version from a matrix that lists none", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.python }}\n",
 			"${{ matrix.python }}", "takes its version from an expression"},
+		// Only a matrix is followed, that being where a project lists the
+		// versions it supports. An expression naming anything else is
+		// reported like any other this file cannot work out.
+		{"a version from somewhere else in the workflow", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ env.PYTHON_VERSION }}\n",
+			"${{ env.PYTHON_VERSION }}", "takes its version from an expression"},
 		// A matrix built at run time lists nothing to read either.
 		{"a matrix built by an expression", "jobs:\n  a:\n    strategy:\n      matrix: ${{ fromJSON(needs.setup.outputs.m) }}\n    runs-on: ${{ matrix.os }}\n",
 			"${{ matrix.os }}", "takes its runner from an expression"},
@@ -326,6 +331,23 @@ func TestMatrix(t *testing.T) {
 			"        with:\n" +
 			"          python-version: ${{ matrix.python-version }}\n"
 		check(t, body, want{"python", "3.9", 6}, want{"python", "3.13", 7})
+	})
+	// A matrix lists what a job runs over, and a list may hold anything YAML
+	// allows. What is not a version to read is passed over, the rest of the
+	// list still being the versions the project supports.
+	t.Run("a value that is not a version to read", func(t *testing.T) {
+		body := "jobs:\n" +
+			"  a:\n" +
+			"    strategy:\n" +
+			"      matrix:\n" +
+			"        python-version:\n" +
+			"          - '3.9'\n" +
+			"          - { version: '3.13' }\n" +
+			"    steps:\n" +
+			"      - uses: actions/setup-python@v5\n" +
+			"        with:\n" +
+			"          python-version: ${{ matrix.python-version }}\n"
+		check(t, body, want{"python", "3.9", 6})
 	})
 	// A version written without quotes is a number to the parser and text to
 	// everyone else, in a matrix as anywhere else.

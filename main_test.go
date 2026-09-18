@@ -188,6 +188,9 @@ func TestNotes(t *testing.T) {
 		{"a window hid some", resolve.Result{Findings: []timeline.Finding{f, ahead}}, []timeline.Finding{f},
 			cliArgs{withinSet: true, withinText: "90d"},
 			[]string{"1 more declaration expires further out than 90d; drop --within to see it"}},
+		{"a window hid several", resolve.Result{Findings: []timeline.Finding{f, ahead, ahead}}, []timeline.Finding{f},
+			cliArgs{withinSet: true, withinText: "90d"},
+			[]string{"2 more declarations expire further out than 90d; drop --within to see them"}},
 		{"nothing owed", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{}, nil},
 		// What a tool list holds is mostly software with no end-of-life
 		// policy, so it is only worth a line when asked for.
