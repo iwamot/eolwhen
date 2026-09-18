@@ -151,16 +151,25 @@ func numbers(s string) ([]int, bool) {
 	return out, true
 }
 
-// Sole returns the one cycle that every version a requirement allows falls
-// into, when the range reaches exactly one.
+// Sole returns the one cycle a requirement can be in, when the cycles the
+// catalog tracks leave exactly one it could be.
 //
 // A manifest pins a range more often than a version: `gem "rails", "~> 6.1.0"`
 // allows every 6.1.x, and which of them is installed is decided by a
-// resolver this tool does not run. A range is still an answer when the whole
-// of it sits inside one cycle, because a row is about a cycle and not about
+// resolver this tool does not run. A range is still an answer when one cycle
+// is the only one it reaches, because a row is about a cycle and not about
 // a version — every version `~> 6.1.0` allows is Rails 6.1, and Rails 6.1
 // has an end-of-life date. A range that reaches two cycles has no single
 // date behind it and gets no row.
+//
+// Reaching a cycle is an overlap and not a fit. A range usually allows
+// versions that were never released — `~> 6.1` runs up to 7 and Rails
+// stopped at 6.1 — so asking the whole of a range to sit inside one cycle
+// would leave the commonest way a Gemfile is written with no answer. The
+// cost is that a version the catalog does not list reads the same whether it
+// was never released or merely left out, so a range that runs across a cycle
+// the catalog is missing is read as the cycle it does reach. Nothing here can
+// tell those two apart.
 func Sole(s span.Span, cycles []string) (string, bool) {
 	found, n := "", 0
 	for _, c := range cycles {

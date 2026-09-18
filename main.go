@@ -71,14 +71,14 @@ packageManager names the tool the project is run with and the exact version
 corepack installs. A requirement on the host is read like any other: >=22
 names a floor and no ceiling and so names no cycle, while ^18 names one.
 
-A requirement that pins a range rather
-than a version still names a cycle when the whole range sits inside one:
-~> 6.1.0 is Rails 6.1, ^8.0 is Laravel 8 and 3.4.x is Tailwind CSS 3.4. One
-that does not, or a package left to the lockfile, has no one version to
-date and is set aside. Each file's operators are its own: ~1.2 is every 1.x
-in a composer.json and every 1.2.x in a package.json. Python's decide more
-often than most, == naming one version and ~=4.2.0 one release cycle, which
-is how a requirements.txt is usually written; a Poetry table in the same
+A requirement that pins a range rather than a version still names a cycle
+when one is the only cycle it can be: ~> 6.1.0 is Rails 6.1, ^8.0 is
+Laravel 8 and 3.4.x is Tailwind CSS 3.4. One that could be two, or a
+package left to the lockfile, has no one version to date and is set aside.
+Each file's operators are its own: ~1.2 is every 1.x in a composer.json and
+every 1.2.x in a package.json. Python's decide more often than most, ==
+naming one version and ~=4.2.0 one release cycle, which is how a
+requirements.txt is usually written; a Poetry table in the same
 pyproject.toml writes npm's operators instead, and is read with them. A
 pom.xml settles fewer: a version written as ${spring.version} is read where
 the same file sets that property, and left to Maven where a parent POM does.
