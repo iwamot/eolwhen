@@ -147,6 +147,8 @@ func TestNotes(t *testing.T) {
 	ahead := timeline.Finding{Product: "nodejs", Cycle: "24", EOL: at("2028-04-30")}
 	u := decl.Unreadable{Source: decl.Source{File: ".nvmrc", Line: 1}, Text: "lts/hydrogen", Reason: "names a moving target, not a version"}
 	undated := timeline.Undated{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}
+	ended := timeline.Undated{Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 4}}
+	m := decl.Unreadable{Source: decl.Source{File: ".github/workflows/ci.yml", Line: 3}, Text: "ubuntu-latest", Reason: "follows the newest release", Moving: true}
 
 	tests := []struct {
 		name  string
@@ -163,6 +165,20 @@ func TestNotes(t *testing.T) {
 			[]string{"nothing declared in dir has an end-of-life date yet"}},
 		{"and is accounted for when asked", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true},
 			[]string{"go.mod:9: go 1.26 has no end-of-life date yet", "nothing declared in dir has an end-of-life date yet"}},
+		// A cycle upstream calls over without dating it has no row either,
+		// and the line says the opposite of the one above: there is
+		// something to do and no day to put it on.
+		{"something is out of support with no date", resolve.Result{Ended: []timeline.Undated{ended}}, nil, cliArgs{},
+			[]string{"something declared in dir is out of support, but endoflife.date has published no date for it"}},
+		// The one line in the block that asks for anything is printed
+		// first, ahead of the lines that ask for nothing.
+		{"which lines those were, when asked", resolve.Result{Ended: []timeline.Undated{ended}, Moving: []decl.Unreadable{m}, Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true},
+			[]string{
+				"compose.yml:4: metabase 0.46 is out of support, with no date published",
+				".github/workflows/ci.yml:3: ubuntu-latest follows the newest release",
+				"go.mod:9: go 1.26 has no end-of-life date yet",
+				"something declared in dir is out of support, but endoflife.date has published no date for it",
+			}},
 		// A line that could not be read leaves the answer short of what the
 		// directory declares, which outranks anything that had no date.
 		{"everything was unreadable", resolve.Result{Unreadable: []decl.Unreadable{u}, Undated: []timeline.Undated{undated}}, nil, cliArgs{},

@@ -23,9 +23,17 @@ const URL = "https://endoflife.date/api/v1/products/full"
 // ends, as written, and is empty when none has been announced. Codename is
 // the name the cycle also goes by, which the Debian family uses as its image
 // tag and everyone else leaves empty.
+//
+// IsEOL is upstream's own answer to whether support has ended, which is not
+// the same question as whether a date was published: hundreds of cycles are
+// marked ended with no date on them, and reading only the date leaves a
+// cycle that is certainly over looking like one that is merely too new to
+// have been dated. A missing or null field decodes as false, which claims
+// nothing, and nothing is read into the absence.
 type Release struct {
 	Name     string `json:"name"`
 	EOLFrom  string `json:"eolFrom"`
+	IsEOL    bool   `json:"isEol"`
 	Codename string `json:"codename"`
 }
 

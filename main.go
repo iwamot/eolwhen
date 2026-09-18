@@ -97,8 +97,11 @@ per distinct complaint.
 A declaration with no date to place is set aside without a word: software
 endoflife.date does not track, a cycle it has not dated yet, and a line that
 follows the newest release on purpose, such as ubuntu-latest, a :latest tag
-or a tool pinned to stable. An empty table is one line on stderr saying
-which of these the directory is.
+or a tool pinned to stable. endoflife.date also calls some cycles out of
+support without giving the day, and those have no date to place either —
+but they are the opposite of the three above, so --verbose keeps them
+apart. An empty table is one line on stderr saying which of these the
+directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
@@ -107,7 +110,8 @@ Options:
                   with the unreadable lines in the document
   --verbose       also say which declarations have no date to place: software
                   endoflife.date does not track, cycles it has not dated yet,
-                  and lines that follow the newest release on purpose
+                  cycles it calls out of support without giving a date, and
+                  lines that follow the newest release on purpose
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -242,6 +246,12 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 		out = append(out, complaint(u))
 	}
 	if a.verbose {
+		// The one line in this block a reader has to act on comes first: a
+		// cycle that is over does not belong among the lines that ask for
+		// nothing.
+		for _, u := range r.Ended {
+			out = append(out, fmt.Sprintf("%s: %s %s is out of support, with no date published", u.Source, u.Product, u.Cycle))
+		}
 		// A line that follows the newest release is folded the same way: a
 		// repository saying ubuntu-latest in nine workflows is saying one
 		// thing, whether or not the reader asked to hear it.
@@ -270,6 +280,8 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 		}
 	case len(r.Unreadable) > 0:
 		out = append(out, "nothing in "+dir+" could be placed on the timeline")
+	case len(r.Ended) > 0:
+		out = append(out, "something declared in "+dir+" is out of support, but endoflife.date has published no date for it")
 	case len(r.Undated) > 0:
 		out = append(out, "nothing declared in "+dir+" has an end-of-life date yet")
 	case len(r.Moving) > 0:
@@ -406,7 +418,7 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 			Hidden:     len(r.Findings) - len(shown),
 		}
 		if a.verbose {
-			doc.Moving, doc.Untracked, doc.Undated = r.Moving, r.Untracked, r.Undated
+			doc.Moving, doc.Untracked, doc.Undated, doc.Ended = r.Moving, r.Untracked, r.Undated, r.Ended
 		}
 		fmt.Fprint(stdout, timeline.JSON(doc, now))
 		return exitCode(shown, now)
