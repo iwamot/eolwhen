@@ -90,6 +90,8 @@ $ eolwhen
 
 A cycle reached that way still gets no row when endoflife.date has given it no end date. Nothing is wrong with the line and there is nothing to go and change — support has not been dated yet, which is what a recent release looks like — so it is set aside without a word, like the software the catalog does not track, and `--verbose` accounts for both.
 
+Upstream sometimes says the opposite: that a cycle is out of support, without publishing the day it happened. There is still no date to put on a timeline, so there is still no row — but filing that with the undated ones would tell the reader that a dead release is a current one. Those cycles are kept apart, and `--verbose` names them for what they are.
+
 ### The other half of an image tag
 
 `FROM python:3.11-bullseye` declares two things. The Python is one, and the Debian 11 it is built on is the other — and the Debian is usually the half that expires first, because a base image outlives the runtime's own support window. So the variant after the dash is read too: a segment spelled `alpine3.19` names Alpine 3.19 outright, and a segment that is one word may be a distribution codename, which names the release and the distribution at once. Which words those are is endoflife.date's answer and not a list kept here, so `bookworm` reads as Debian 12 while `slim`, `fpm` and `jre` are builds of something rather than releases of anything, and say nothing.
@@ -296,8 +298,11 @@ per distinct complaint.
 A declaration with no date to place is set aside without a word: software
 endoflife.date does not track, a cycle it has not dated yet, and a line that
 follows the newest release on purpose, such as ubuntu-latest, a :latest tag
-or a tool pinned to stable. An empty table is one line on stderr saying
-which of these the directory is.
+or a tool pinned to stable. endoflife.date also calls some cycles out of
+support without giving the day, and those have no date to place either —
+but they are the opposite of the three above, so --verbose keeps them
+apart. An empty table is one line on stderr saying which of these the
+directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
@@ -306,7 +311,8 @@ Options:
                   with the unreadable lines in the document
   --verbose       also say which declarations have no date to place: software
                   endoflife.date does not track, cycles it has not dated yet,
-                  and lines that follow the newest release on purpose
+                  cycles it calls out of support without giving a date, and
+                  lines that follow the newest release on purpose
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -333,7 +339,7 @@ Exit codes:
 - A release cycle's end-of-life date is the first day without support, so something due today reads as `0d` and counts as expired. The sign says which side of today a date falls on, and the day it lands on takes none. Days are counted between calendar days, and today is today where you are: endoflife.date publishes a date rather than a moment, so counting from anyone else's calendar would put a date and a number that disagree on the same row.
 - Rows are ordered by the date itself, oldest first, so the timeline runs in one direction and the most overdue reads at the top.
 - `.python-version` may name several versions, as pyenv allows; each gets its own row.
-- A cycle with no announced end-of-life date is reported on stderr rather than printed, because there is no day to place it on. Current releases are often in this state.
+- A cycle with no announced end-of-life date is reported on stderr rather than printed, because there is no day to place it on. Current releases are often in this state. A cycle endoflife.date marks as out of support without publishing a date is reported there too, in words of its own: the same missing day, the opposite situation.
 - Software endoflife.date does not track is passed over without a word, whatever version it was given. Plenty of tools publish no end-of-life policy at all, and there was never a date to find for them; a `jq = "latest"` is a line about jq before it is a line about latest.
 - The runner-image catalog holds the images GitHub offers and the ones it retired most recently, so a label retired longer ago — `ubuntu-18.04`, `windows-2019` — is reported as covered by no release cycle. A workflow still asking for one has already stopped running.
 - A file the walk offers but cannot open is reported by path and the rest of the tree is still read. One unreadable corner is not a reason to refuse an answer, though the directory named on the command line has to be readable, being the question itself.

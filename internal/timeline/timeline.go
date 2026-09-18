@@ -28,9 +28,14 @@ func (f Finding) What() string { return f.Product + " " + f.Cycle }
 
 // Undated is a declaration that reached a release cycle endoflife.date has
 // given no end date. The line was read and the cycle was found; only the
-// date is missing, because support has not been dated yet. That is what a
-// directory running current versions looks like, so it is nothing to do and
-// only --verbose says which lines it was.
+// date is missing.
+//
+// There are two ways to be here and they are opposite. Support has not been
+// dated yet, which is what a directory running current versions looks like
+// and is nothing to do. Or upstream says support has ended and published no
+// date for it, which is everything to do and still has no day to put on a
+// timeline. The two are kept in separate lists for that reason, and
+// --verbose says which lines were which.
 type Undated struct {
 	Product string
 	Cycle   string
@@ -224,6 +229,10 @@ type Report struct {
 	// enough of the first to bury the answer.
 	Untracked []decl.Decl
 	Undated   []Undated
+	// Ended are the cycles upstream says are out of support without saying
+	// when. They earn no row, having no date, and are filled like the rest
+	// only when they were asked for.
+	Ended []Undated
 }
 
 type document struct {
@@ -234,6 +243,7 @@ type document struct {
 	Moving     []unreadable `json:"moving"`
 	Untracked  []untracked  `json:"untracked"`
 	Undated    []undated    `json:"undated"`
+	Ended      []undated    `json:"ended"`
 }
 
 type untracked struct {
@@ -248,6 +258,14 @@ type undated struct {
 	Source  string `json:"source"`
 	Product string `json:"product"`
 	Cycle   string `json:"cycle"`
+}
+
+func cycleOf(u Undated) undated {
+	return undated{
+		Source:  u.Source.String(),
+		Product: u.Product,
+		Cycle:   u.Cycle,
+	}
 }
 
 type entry struct {
@@ -290,6 +308,7 @@ func JSON(r Report, now time.Time) string {
 		Moving:     []unreadable{},
 		Untracked:  []untracked{},
 		Undated:    []undated{},
+		Ended:      []undated{},
 	}
 	for _, f := range r.Findings {
 		doc.Findings = append(doc.Findings, entry{
@@ -315,11 +334,10 @@ func JSON(r Report, now time.Time) string {
 		})
 	}
 	for _, u := range r.Undated {
-		doc.Undated = append(doc.Undated, undated{
-			Source:  u.Source.String(),
-			Product: u.Product,
-			Cycle:   u.Cycle,
-		})
+		doc.Undated = append(doc.Undated, cycleOf(u))
+	}
+	for _, u := range r.Ended {
+		doc.Ended = append(doc.Ended, cycleOf(u))
 	}
 	// The document holds only strings, numbers, and booleans, so Marshal
 	// cannot fail.

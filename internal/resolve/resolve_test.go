@@ -24,6 +24,10 @@ const doc = `{"result":[
     {"name":"macos-15","eolFrom":"2028-01-01"},
     {"name":"windows-2025","eolFrom":"2029-01-01"}
   ]},
+  {"name":"metabase","aliases":[],"releases":[
+    {"name":"0.55","eolFrom":"2027-03-01"},
+    {"name":"0.46","eolFrom":null,"isEol":true}
+  ]},
   {"name":"nodejs","aliases":["node"],"releases":[
     {"name":"26","eolFrom":null},
     {"name":"14","eolFrom":"2023-04-30"}
@@ -165,6 +169,29 @@ func TestAllSetsAsideUndated(t *testing.T) {
 	}
 	if len(r.Undated) != 1 || r.Undated[0].Product != "nodejs" || r.Undated[0].Cycle != "26" {
 		t.Errorf("Undated = %+v; want nodejs 26", r.Undated)
+	}
+}
+
+// TestAllSetsAsideEnded covers the other cycle with no date: upstream says
+// support is over and published no day for it. There is no row to place, as
+// with an undated cycle, and the two are opposite in what they ask of the
+// reader, so they are kept in separate lists.
+func TestAllSetsAsideEnded(t *testing.T) {
+	r := All(load(t), []decl.Decl{{Product: "metabase", Version: "0.46.2", Source: src("compose.yml")}}, nil)
+	if len(r.Findings) != 0 || len(r.Unreadable) != 0 || len(r.Undated) != 0 {
+		t.Fatalf("All = %+v; want nothing placed, reported, or called undated", r)
+	}
+	if len(r.Ended) != 1 || r.Ended[0].Product != "metabase" || r.Ended[0].Cycle != "0.46" {
+		t.Errorf("Ended = %+v; want metabase 0.46", r.Ended)
+	}
+}
+
+// A cycle of the same product that carries a date is a row like any other,
+// so the flag is read where the date is missing and nowhere else.
+func TestAllPlacesADatedCycleOfAProductWithEndedOnes(t *testing.T) {
+	r := All(load(t), []decl.Decl{{Product: "metabase", Version: "0.55.1", Source: src("compose.yml")}}, nil)
+	if len(r.Ended) != 0 || len(r.Findings) != 1 || r.Findings[0].Cycle != "0.55" {
+		t.Errorf("All = %+v; want one row for 0.55", r)
 	}
 }
 
@@ -479,15 +506,18 @@ func TestAllOrdersWhatItSetsAside(t *testing.T) {
 	}
 }
 
-// TestAllOrdersTheQuietLists is the same rule for the other two lists a
-// --verbose run prints: a cycle with no date yet, and a line following the
-// newest release on purpose.
+// TestAllOrdersTheQuietLists is the same rule for the other lists a
+// --verbose run prints: a cycle with no date yet, a cycle upstream calls
+// over without dating it, and a line following the newest release on
+// purpose.
 func TestAllOrdersTheQuietLists(t *testing.T) {
 	at := func(line int) decl.Source { return decl.Source{File: "compose.yml", Line: line} }
 	r := All(load(t),
 		[]decl.Decl{
 			{Product: "redis", Version: "8.0", Source: at(5)},
 			{Product: "nodejs", Version: "26", Source: at(2)},
+			{Product: "metabase", Version: "0.46", Source: at(6)},
+			{Product: "metabase", Version: "0.46.1", Source: at(3)},
 		},
 		[]decl.Unreadable{
 			{Source: at(4), Product: "python", Text: "latest", Moving: true},
@@ -495,6 +525,9 @@ func TestAllOrdersTheQuietLists(t *testing.T) {
 		})
 	if len(r.Undated) != 2 || r.Undated[0].Source.Line != 2 || r.Undated[1].Source.Line != 5 {
 		t.Errorf("Undated = %+v; want lines 2 then 5", r.Undated)
+	}
+	if len(r.Ended) != 2 || r.Ended[0].Source.Line != 3 || r.Ended[1].Source.Line != 6 {
+		t.Errorf("Ended = %+v; want lines 3 then 6", r.Ended)
 	}
 	if len(r.Moving) != 2 || r.Moving[0].Source.Line != 1 || r.Moving[1].Source.Line != 4 {
 		t.Errorf("Moving = %+v; want lines 1 then 4", r.Moving)

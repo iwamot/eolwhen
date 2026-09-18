@@ -31,6 +31,11 @@ type Result struct {
 	// announced. They are kept and left out for the same reason: there is no
 	// date to place, and nothing for the reader to do about it.
 	Undated []timeline.Undated
+	// Ended are the declarations whose cycle upstream says is out of support
+	// without saying when. There is no date to place either, but there is
+	// plenty for the reader to do, so they are kept apart from Undated
+	// rather than reported as a cycle that is merely too new to have a date.
+	Ended []timeline.Undated
 }
 
 // All resolves every declaration, and sorts the lines the extractors could
@@ -131,6 +136,7 @@ func (r *Result) order() {
 	bySource(r.Moving, func(u decl.Unreadable) decl.Source { return u.Source })
 	bySource(r.Untracked, func(d decl.Decl) decl.Source { return d.Source })
 	bySource(r.Undated, func(u timeline.Undated) decl.Source { return u.Source })
+	bySource(r.Ended, func(u timeline.Undated) decl.Source { return u.Source })
 }
 
 // bySource orders a list of set-aside lines by where each one was found.
@@ -212,15 +218,23 @@ func (r *Result) codename(c *catalog.Catalog, d decl.Decl) {
 }
 
 // place files a declaration that reached a cycle: as a finding when the
-// cycle has an end date, and as undated when it has none.
+// cycle has an end date, and, when it has none, by what upstream says about
+// the cycle instead.
+//
+// A cycle with no date is not one situation but two. Upstream may have said
+// nothing yet, which is what a current release looks like, or it may have
+// said support is over and published no day for it. Both leave nothing to
+// put on a timeline and they are opposite in what they ask of the reader, so
+// the date alone cannot decide which was meant.
 func (r *Result) place(product, cycle string, release catalog.Release, src decl.Source) {
 	eol, ok := release.EOL()
 	if !ok {
-		r.Undated = append(r.Undated, timeline.Undated{
-			Product: product,
-			Cycle:   cycle,
-			Source:  src,
-		})
+		reached := timeline.Undated{Product: product, Cycle: cycle, Source: src}
+		if release.IsEOL {
+			r.Ended = append(r.Ended, reached)
+			return
+		}
+		r.Undated = append(r.Undated, reached)
 		return
 	}
 	r.Findings = append(r.Findings, timeline.Finding{
