@@ -8,7 +8,7 @@ locked = true
 
 [tools]
 go = "1.27.1"
-"aqua:goreleaser/goreleaser" = "2.18.1"
+"aqua:goreleaser/goreleaser" = "2.18.2"
 "go:github.com/google/go-licenses/v2" = "v2.0.1"
 "go:golang.org/x/vuln/cmd/govulncheck" = "v1.8.0"
 
