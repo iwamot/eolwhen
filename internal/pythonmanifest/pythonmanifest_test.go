@@ -110,12 +110,43 @@ func TestExtractReadsAPyproject(t *testing.T) {
 		want{"apache-airflow", "==2.7.3", "2.7.3", "2.7.4", 13})
 }
 
-// requires-python states what the project accepts rather than what it runs
-// on, so it is no declaration of a version in use.
-func TestExtractReadsNoRequiresPython(t *testing.T) {
-	ds, us := Extract("pyproject.toml", []byte("[project]\nrequires-python = \">=3.9\"\n"))
-	if len(ds) != 0 || len(us) != 0 {
-		t.Errorf("= %+v, %+v; want neither", ds, us)
+// requires-python is a requirement on the interpreter, read like any other
+// requirement: the catalog answers python by name, so no purl is involved.
+// Written open, as it almost always is, it names no cycle and is set aside.
+func TestExtractReadsRequiresPython(t *testing.T) {
+	t.Run("open, as it is usually written", func(t *testing.T) {
+		ds, us := Extract("pyproject.toml", []byte("[project]\nname = \"demo\"\nrequires-python = \">=3.9\"\n"))
+		want := decl.Unreadable{
+			Source: decl.Source{File: "pyproject.toml", Line: 3},
+			// No ecosystem: the interpreter is software the catalog knows
+			// by name, not a package to look up by purl.
+			Product: "python",
+			Text:    ">=3.9",
+			Reason:  hostDecides,
+			Moving:  true,
+		}
+		if len(ds) != 0 || len(us) != 1 || us[0] != want {
+			t.Errorf("= %+v, %+v; want the one set-aside line", ds, us)
+		}
+	})
+	t.Run("closed, where it names one cycle", func(t *testing.T) {
+		ds, _ := Extract("pyproject.toml", []byte("[project]\nrequires-python = \"==3.11.*\"\n"))
+		if len(ds) != 1 || ds[0].Ecosystem != "" || ds[0].Product != "python" || ds[0].Allows.From != "3.11" {
+			t.Errorf("= %+v; want python 3.11", ds)
+		}
+	})
+}
+
+// Poetry reserves the key for the same thing, and it is read the same way.
+// A caret is closed, so it reaches the extractor as a range; whether that
+// range sits inside one release cycle is settled where the catalog is.
+func TestExtractReadsPoetryPython(t *testing.T) {
+	ds, us := Extract("pyproject.toml", []byte("[tool.poetry.dependencies]\npython = \"^3.9\"\n"))
+	if len(us) != 0 {
+		t.Fatalf("unreadable = %+v; want none", us)
+	}
+	if len(ds) != 1 || ds[0].Ecosystem != "" || ds[0].Product != "python" || ds[0].Allows.From != "3.9" {
+		t.Errorf("= %+v; want python 3.9.. with no ecosystem", ds)
 	}
 }
 

@@ -87,6 +87,21 @@ func TestExtractLeavesTheVersionToTheLockfile(t *testing.T) {
 	if !u.Moving {
 		t.Error("moving = false; want true, since the lockfile holds the version")
 	}
+	if u.Reason != reason(false) {
+		t.Errorf("reason = %q; want the lockfile's", u.Reason)
+	}
+}
+
+// The one requirement that is not a package is not the lockfile's to settle
+// either: which PHP a project runs on is whatever the machine has.
+func TestExtractSaysWhoSettlesTheRuntime(t *testing.T) {
+	_, us := Extract("composer.json", []byte(`{"require": {"php": ">=7.4"}}`))
+	if len(us) != 1 || us[0].Product != "php" || us[0].Ecosystem != "" {
+		t.Fatalf("unreadable = %+v; want the php line", us)
+	}
+	if us[0].Reason != reason(true) {
+		t.Errorf("reason = %q; want the host's", us[0].Reason)
+	}
 }
 
 func TestExtractPassesOverWhatIsNotAPackage(t *testing.T) {

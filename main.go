@@ -65,9 +65,13 @@ A package reaches a product only through the package names endoflife.date
 publishes, so rails is Ruby on Rails on upstream's word while pg is the
 PostgreSQL driver and reaches nothing. A composer.json's php is the one
 exception, Composer having reserved that name for the language, so it
-declares a runtime the way a .python-version does. A package.json's
-packageManager is another, naming the tool the project is run with and the
-exact version corepack installs. A requirement that pins a range rather
+declares a runtime the way a .python-version does. A package.json's engines
+and a pyproject.toml's requires-python say the same kind of thing, and a
+packageManager names the tool the project is run with and the exact version
+corepack installs. A requirement on the host is read like any other: >=22
+names a floor and no ceiling and so names no cycle, while ^18 names one.
+
+A requirement that pins a range rather
 than a version still names a cycle when the whole range sits inside one:
 ~> 6.1.0 is Rails 6.1, ^8.0 is Laravel 8 and 3.4.x is Tailwind CSS 3.4. One
 that does not, or a package left to the lockfile, has no one version to

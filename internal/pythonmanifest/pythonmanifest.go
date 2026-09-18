@@ -12,9 +12,13 @@
 // A requirement usually names a range rather than a version, and Python's
 // are narrow: == names one version outright, and ~=4.2.0 and ==4.2.* each
 // name one release cycle, which is how a requirements.txt is usually
-// written. requires-python is not read at all — it says what the project
-// accepts rather than what it runs on, and the version in use is in a
-// .python-version, a Dockerfile or a workflow.
+// written.
+//
+// requires-python is read the same way, being the same kind of statement
+// about the interpreter instead of a package. It is almost always written
+// >=3.9 or the like, which names a floor and no ceiling and so names no
+// cycle, and it is then set aside like any other requirement no one version
+// answers.
 package pythonmanifest
 
 import (
@@ -31,12 +35,34 @@ import (
 // Ecosystem is the purl type a Python package name belongs to.
 const Ecosystem = "pypi"
 
-// unsettled is what is said about a requirement naming no one version.
+// unsettled is what is said about a requirement naming no one version, and
+// hostDecides the same for the one that is not on a package.
 //
 // Not the lockfile the other manifests are told to blame: a requirements.txt
 // is often the whole of what a project pins, with nothing beside it to hold
-// the answer.
-const unsettled = "names no single version here, so what gets installed decides which one"
+// the answer. And which interpreter a project runs on is whatever the
+// machine has, which is not an install's answer either.
+const (
+	unsettled   = "names no single version here, so what gets installed decides which one"
+	hostDecides = "names no single version here, so whatever the host has decides which one"
+)
+
+// reason says which of the two a requirement gets.
+func reason(runtime bool) string {
+	if runtime {
+		return hostDecides
+	}
+	return unsettled
+}
+
+// ecosystemOf says where a name is looked up: among the purls of a registry,
+// or among the catalog's own names, which is where a runtime is answered.
+func ecosystemOf(runtime bool) string {
+	if runtime {
+		return ""
+	}
+	return Ecosystem
+}
 
 // Matches reports whether a file is one of the manifests this reads.
 //
@@ -69,9 +95,14 @@ func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 }
 
 // entry is one requirement the file wrote, and the line it sits on.
+//
+// runtime says the requirement is on the interpreter rather than on a
+// package, which is what requires-python is. The catalog answers a runtime
+// by name, as it does for a .python-version, and no purl is involved.
 type entry struct {
-	text string
-	line int
+	text    string
+	line    int
+	runtime bool
 }
 
 // read turns the requirements a file wrote into declarations. Which file
@@ -85,22 +116,23 @@ func read(path string, entries []entry) ([]decl.Decl, []decl.Unreadable) {
 		if !ok {
 			continue
 		}
+		ecosystem := ecosystemOf(e.runtime)
 		src := decl.Source{File: path, Line: e.line}
 		text := strings.TrimSpace(specifier)
 		allowed, ok := allows(specifier)
 		if !ok {
 			us = append(us, decl.Unreadable{
 				Source:    src,
-				Ecosystem: Ecosystem,
+				Ecosystem: ecosystem,
 				Product:   name,
 				Text:      text,
-				Reason:    unsettled,
+				Reason:    reason(e.runtime),
 				Moving:    true,
 			})
 			continue
 		}
 		ds = append(ds, decl.Decl{
-			Ecosystem: Ecosystem,
+			Ecosystem: ecosystem,
 			Product:   name,
 			Version:   text,
 			Allows:    allowed,
@@ -143,6 +175,7 @@ type tables struct {
 	Project struct {
 		Dependencies []string            `toml:"dependencies"`
 		Optional     map[string][]string `toml:"optional-dependencies"`
+		Python       string              `toml:"requires-python"`
 	} `toml:"project"`
 	Groups map[string][]string `toml:"dependency-groups"`
 }
@@ -163,6 +196,16 @@ func pyproject(data []byte) []entry {
 	lines := strings.Split(string(data), "\n")
 	from := map[string]int{}
 	var out []entry
+	if spec := strings.TrimSpace(doc.Project.Python); spec != "" {
+		// requires-python writes the specifier on its own, and what it
+		// specifies is the interpreter, so it is read as the requirement on
+		// python that it means.
+		out = append(out, entry{
+			text:    "python " + spec,
+			line:    lineOf(lines, "requires-python", from),
+			runtime: true,
+		})
+	}
 	for _, list := range lists(doc) {
 		for _, text := range list {
 			out = append(out, entry{text: text, line: lineOf(lines, text, from)})

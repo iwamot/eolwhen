@@ -56,8 +56,8 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `compose*.yml`, `docker-compose*.yml` (and `.yaml`) | the same, for each service's `image:`, unless the service has a `build:` and the image is what it builds |
 | `Gemfile`, `gems.rb` | each `gem` whose name endoflife.date publishes as a gem — the framework the application sits on, not the libraries around it |
 | `composer.json` | each package in `require` and `require-dev` whose name endoflife.date publishes, and the `php` the project runs on |
-| `package.json` | each package in `dependencies`, `devDependencies`, `peerDependencies` and `optionalDependencies` whose name endoflife.date publishes, and the `packageManager` the project is run with |
-| `pyproject.toml` | each requirement in `dependencies`, `optional-dependencies` and `dependency-groups` whose name endoflife.date publishes, and each dependency of a Poetry table |
+| `package.json` | each package in `dependencies`, `devDependencies`, `peerDependencies` and `optionalDependencies` whose name endoflife.date publishes, the `packageManager` the project is run with, and what `engines` asks of the host |
+| `pyproject.toml` | each requirement in `dependencies`, `optional-dependencies` and `dependency-groups` whose name endoflife.date publishes, each dependency of a Poetry table, and the `requires-python` either of them writes |
 | `requirements*.txt`, and any `.txt` in a `requirements/` directory | the same, one requirement per line |
 | `*.csproj`, `*.fsproj`, `*.vbproj` | the target framework the project runs on — Microsoft .NET, or the .NET Framework |
 | `pom.xml` | the `<parent>` it builds on and each `<dependency>` whose group and artifact endoflife.date publishes, where this file settles the version |
@@ -160,6 +160,8 @@ Python is the ecosystem where the ranges usually do decide. A `requirements.txt`
 Poetry writes the same dependencies its own way, as a key with a constraint rather than as a PEP 508 string, and a `pyproject.toml` is read both ways — a project moving from one to the other has both for a while. Poetry's operators are npm's rather than PEP 440's: `^4.2` is every 4.x from 4.2, `~1.14.0` every 1.14.x, and a version on its own is that version. An entry that names no version of its own — a dependency taken from a repository or a path, or one written as a constraint per interpreter — is set aside like any requirement an install settles. Its `python` key is left alone, being `requires-python` under another name.
 
 A `pom.xml` is the one manifest that does not close over itself. A version may be written as `${spring.version}`, and the property may be set in a parent POM this file does not hold; a dependency may carry no version at all, the parent deciding it, which is how a Spring Boot project is usually written. What is read is what the file settles on its own: a literal `<version>`, and a property the project's own `<properties>` sets. Everything else names no version here, and Maven is the one that resolves it. A dependency is read wherever it is declared — under `<dependencyManagement>`, or in a `<profile>` — because each of those is the project saying which version it builds with. A profile's own properties are not read: two profiles may set the same one differently, and which of them applies is settled when the build runs.
+
+A manifest also says what it asks of the host it runs on, and that is read as the same kind of requirement: a `composer.json`'s `php`, a `package.json`'s `engines`, a `pyproject.toml`'s `requires-python` and the `python` key of a Poetry table. Written open — `>=3.9`, `>=22` — it names a floor and no ceiling and so names no release cycle, which is how one is usually written and why it usually says nothing. Written closed — `^7.4`, `^18`, `==3.11.*` — it names one, and that is the runtime the project runs on as squarely as a `.python-version` would say it. Which of the two it is settles the answer; there is no line drawn between accepting a version and running on one, because a manifest does not draw one.
 
 PyPI treats a name with dashes, underscores and dots as one name — `typing_extensions` and `typing-extensions` are the same package — so a manifest may spell it any of those ways and still reach the product. That rule is PyPI's alone, and no other registry here gets it.
 
@@ -299,9 +301,13 @@ A package reaches a product only through the package names endoflife.date
 publishes, so rails is Ruby on Rails on upstream's word while pg is the
 PostgreSQL driver and reaches nothing. A composer.json's php is the one
 exception, Composer having reserved that name for the language, so it
-declares a runtime the way a .python-version does. A package.json's
-packageManager is another, naming the tool the project is run with and the
-exact version corepack installs. A requirement that pins a range rather
+declares a runtime the way a .python-version does. A package.json's engines
+and a pyproject.toml's requires-python say the same kind of thing, and a
+packageManager names the tool the project is run with and the exact version
+corepack installs. A requirement on the host is read like any other: >=22
+names a floor and no ceiling and so names no cycle, while ^18 names one.
+
+A requirement that pins a range rather
 than a version still names a cycle when the whole range sits inside one:
 ~> 6.1.0 is Rails 6.1, ^8.0 is Laravel 8 and 3.4.x is Tailwind CSS 3.4. One
 that does not, or a package left to the lockfile, has no one version to
@@ -404,7 +410,6 @@ Exit codes:
 - **Vulnerabilities.** They carry no date, so they do not belong on a timeline, and `osv-scanner`, `trivy`, and `grype` already read a directory for them. The two answers meet in one place worth saying out loud: once a runtime is past its end of life, the vulnerabilities found from then on are never fixed.
 - **Deprecated GitHub Actions.** `actions/checkout@v2` has no machine-readable source to track, and unlike an expired base image it does not fail quietly — the workflow says so the next time it runs.
 - **Versions inside `.tf` files.** The most valuable layer by far, but the one where the value is usually `var.eks_version` rather than a literal, which only Terraform itself can resolve. Later. A `.terraform-version` is a different thing and is read: it names the Terraform itself, as a literal.
-- **`requires-python` in `pyproject.toml`.** It states a range — `>=3.9` — which says what the project accepts rather than what it runs on, and a range has no single cycle to date. The version actually in use is in `.python-version`, the Dockerfile, or the workflow.
 - **Scanning many directories.** One run reads one directory; a shell loop covers the rest.
 
 ## Credits
