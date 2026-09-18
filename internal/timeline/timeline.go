@@ -230,8 +230,9 @@ type Report struct {
 	Untracked []decl.Decl
 	Undated   []Undated
 	// Ended are the cycles upstream says are out of support without saying
-	// when. They earn no row, having no date, and are filled like the rest
-	// only when they were asked for.
+	// when. They earn no row, having no date, but they are not news the
+	// reader has to ask for, so unlike the three above they are always
+	// filled.
 	Ended []Undated
 }
 

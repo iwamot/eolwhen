@@ -106,25 +106,24 @@ row of its own, reading <4.0 and carrying the day that oldest cycle ended,
 which support for anything older had run out by. A line this tool could not
 read — a digest-pinned FROM, an expression it cannot work out, a version no
 release cycle covers — is reported on stderr rather than guessed at, once
-per distinct complaint.
+per distinct complaint. So is a cycle endoflife.date calls out of support
+without publishing the day: there is no date to place it on, and it is out
+of support all the same.
 A declaration with no date to place is set aside without a word: software
 endoflife.date does not track, a cycle it has not dated yet, and a line that
 follows the newest release on purpose, such as ubuntu-latest, a :latest tag
-or a tool pinned to stable. endoflife.date also calls some cycles out of
-support without giving the day, and those have no date to place either —
-but they are the opposite of the three above, so --verbose keeps them
-apart. An empty table is one line on stderr saying which of these the
-directory is.
+or a tool pinned to stable. An empty table is one line on stderr saying
+which of these the directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
   --json          print JSON instead of the table: one entry per declaration,
-                  with the unreadable lines in the document
+                  with the unreadable lines and the cycles that are over in
+                  the document
   --verbose       also say which declarations have no date to place: software
                   endoflife.date does not track, cycles it has not dated yet,
-                  cycles it calls out of support without giving a date, and
-                  lines that follow the newest release on purpose
+                  and lines that follow the newest release on purpose
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -258,13 +257,14 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 	for _, u := range collapse(r.Unreadable) {
 		out = append(out, complaint(u))
 	}
+	// A cycle upstream calls over is out of support whether or not the
+	// reader asked for detail, which is the question they ran the tool
+	// with, so it is said like a line that could not be read rather than
+	// kept back for --verbose.
+	for _, u := range collapse(ended(r.Ended)) {
+		out = append(out, complaint(u))
+	}
 	if a.verbose {
-		// The one line in this block a reader has to act on comes first: a
-		// cycle that is over does not belong among the lines that ask for
-		// nothing.
-		for _, u := range r.Ended {
-			out = append(out, fmt.Sprintf("%s: %s %s is out of support, with no date published", u.Source, u.Product, u.Cycle))
-		}
 		// A line that follows the newest release is folded the same way: a
 		// repository saying ubuntu-latest in nine workflows is saying one
 		// thing, whether or not the reader asked to hear it.
@@ -294,7 +294,7 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 	case len(r.Unreadable) > 0:
 		out = append(out, "nothing in "+dir+" could be placed on the timeline")
 	case len(r.Ended) > 0:
-		out = append(out, "something declared in "+dir+" is out of support, but endoflife.date has published no date for it")
+		out = append(out, "nothing declared in "+dir+" has a date to put on the timeline")
 	case len(r.Undated) > 0:
 		out = append(out, "nothing declared in "+dir+" has an end-of-life date yet")
 	case len(r.Moving) > 0:
@@ -429,9 +429,13 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 			Findings:   shown,
 			Unreadable: r.Unreadable,
 			Hidden:     len(r.Findings) - len(shown),
+			// Said on stderr without being asked for, so carried here
+			// without being asked for: a caller reading the document is
+			// owed everything one reading the words would have been told.
+			Ended: r.Ended,
 		}
 		if a.verbose {
-			doc.Moving, doc.Untracked, doc.Undated, doc.Ended = r.Moving, r.Untracked, r.Undated, r.Ended
+			doc.Moving, doc.Untracked, doc.Undated = r.Moving, r.Untracked, r.Undated
 		}
 		fmt.Fprint(stdout, timeline.JSON(doc, now))
 		return exitCode(shown, now)
@@ -448,6 +452,23 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 type repeated struct {
 	decl.Unreadable
 	more int
+}
+
+// ended words a cycle upstream calls over as the complaint it is. It has no
+// date and so no row, which is what a line that could not be read has in
+// common with it, and saying both the same way is what lets one folding rule
+// serve them both.
+func ended(us []timeline.Undated) []decl.Unreadable {
+	out := make([]decl.Unreadable, 0, len(us))
+	for _, u := range us {
+		out = append(out, decl.Unreadable{
+			Source:  u.Source,
+			Product: u.Product,
+			Text:    u.Cycle,
+			Reason:  "is out of support, with no date published",
+		})
+	}
+	return out
 }
 
 // collapse folds identical complaints into one line each, keeping the place

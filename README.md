@@ -96,7 +96,7 @@ $ eolwhen
 
 A cycle reached that way still gets no row when endoflife.date has given it no end date. Nothing is wrong with the line and there is nothing to go and change — support has not been dated yet, which is what a recent release looks like — so it is set aside without a word, like the software the catalog does not track, and `--verbose` accounts for both.
 
-Upstream sometimes says the opposite: that a cycle is out of support, without publishing the day it happened. There is still no date to put on a timeline, so there is still no row — but filing that with the undated ones would tell the reader that a dead release is a current one. Those cycles are kept apart, and `--verbose` names them for what they are.
+Upstream sometimes says the opposite: that a cycle is out of support, without publishing the day it happened. There is still no date to put on a timeline, so there is still no row — but a dead release is not a current one, and it is what the reader ran the tool to find out. Those cycles are reported on stderr like a line that could not be read, whether or not `--verbose` was asked for, and the same cycle declared in several places is said once with a count.
 
 ### The other half of an image tag
 
@@ -340,25 +340,24 @@ row of its own, reading <4.0 and carrying the day that oldest cycle ended,
 which support for anything older had run out by. A line this tool could not
 read — a digest-pinned FROM, an expression it cannot work out, a version no
 release cycle covers — is reported on stderr rather than guessed at, once
-per distinct complaint.
+per distinct complaint. So is a cycle endoflife.date calls out of support
+without publishing the day: there is no date to place it on, and it is out
+of support all the same.
 A declaration with no date to place is set aside without a word: software
 endoflife.date does not track, a cycle it has not dated yet, and a line that
 follows the newest release on purpose, such as ubuntu-latest, a :latest tag
-or a tool pinned to stable. endoflife.date also calls some cycles out of
-support without giving the day, and those have no date to place either —
-but they are the opposite of the three above, so --verbose keeps them
-apart. An empty table is one line on stderr saying which of these the
-directory is.
+or a tool pinned to stable. An empty table is one line on stderr saying
+which of these the directory is.
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
   --json          print JSON instead of the table: one entry per declaration,
-                  with the unreadable lines in the document
+                  with the unreadable lines and the cycles that are over in
+                  the document
   --verbose       also say which declarations have no date to place: software
                   endoflife.date does not track, cycles it has not dated yet,
-                  cycles it calls out of support without giving a date, and
-                  lines that follow the newest release on purpose
+                  and lines that follow the newest release on purpose
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -385,12 +384,12 @@ Exit codes:
 - A release cycle's end-of-life date is the first day without support, so something due today reads as `0d` and counts as expired. The sign says which side of today a date falls on, and the day it lands on takes none. Days are counted between calendar days, and today is today where you are: endoflife.date publishes a date rather than a moment, so counting from anyone else's calendar would put a date and a number that disagree on the same row.
 - Rows are ordered by the date itself, oldest first, so the timeline runs in one direction and the most overdue reads at the top.
 - `.python-version` may name several versions, as pyenv allows; each gets its own row.
-- A cycle with no announced end-of-life date is reported on stderr rather than printed, because there is no day to place it on. Current releases are often in this state. A cycle endoflife.date marks as out of support without publishing a date is reported there too, in words of its own: the same missing day, the opposite situation.
+- A cycle with no announced end-of-life date is set aside rather than printed, because there is no day to place it on. Current releases are often in this state, so nothing is owed and `--verbose` accounts for it. A cycle endoflife.date marks as out of support without publishing a date is reported on stderr instead: the same missing day, the opposite situation.
 - Software endoflife.date does not track is passed over without a word, whatever version it was given. Plenty of tools publish no end-of-life policy at all, and there was never a date to find for them; a `jq = "latest"` is a line about jq before it is a line about latest.
 - The runner-image catalog holds the images GitHub offers and the ones it retired most recently, so a label retired longer ago — `ubuntu-18.04`, `windows-2019` — is reported as covered by no release cycle. A workflow still asking for one has already stopped running.
 - A file the walk offers but cannot open is reported by path and the rest of the tree is still read. One unreadable corner is not a reason to refuse an answer, though the directory named on the command line has to be readable, being the question itself.
 - A directory reached through a symlink is that directory. Links met further down the tree are left alone, which is what keeps a loop from being possible.
-- The exit code answers for the rows that were printed, so `--within 90d` turns the run into a check for "is anything expiring in the next 90 days", and what the window hid is not counted.
+- The exit code answers for the rows that were printed, so `--within 90d` turns the run into a check for "is anything expiring in the next 90 days", and what the window hid is not counted. A cycle that is out of support with no date has no row either, and neither has a line that could not be read, so neither of those changes it.
 - The same complaint from several places is said once, with a count. Nearly every workflow in a healthy repository says `runs-on: ubuntu-latest`, and knowing that once is enough; `grep` finds the rest.
 - A file that does not parse — a workflow or Compose file that is not YAML yet, a `mise.toml` that is not TOML yet, a `composer.json` that is not JSON yet — is skipped in silence, and whole: half a file is not half a set of declarations. The tool that owns it reports that better than this one can, and a file mid-edit is not a declaration that could not be read.
 - The whole catalog — every product endoflife.date knows, with every cycle — is fetched from endoflife.date when a run needs it. There is no prebuilt database in the binary and nothing to update.
