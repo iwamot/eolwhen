@@ -200,3 +200,34 @@ func TestMeets(t *testing.T) {
 		})
 	}
 }
+
+func TestPrecedes(t *testing.T) {
+	tests := []struct {
+		name string
+		s    Span
+		v    string
+		want bool
+	}{
+		// Every version the span allows is below v.
+		{"the whole of it below", Span{From: "3.2.0", Below: "3.3"}, "4.2", true},
+		{"ending where v begins", Span{From: "4.0", Below: "4.2"}, "4.2", true},
+		{"no floor, ending below", Span{Below: "4.0"}, "4.2", true},
+
+		// A span that reaches v, or starts at it, allows versions v covers.
+		{"reaching past v", Span{From: "3.0", Below: "8.0"}, "4.2", false},
+		{"starting at v", Span{From: "4.2", Below: "5.0"}, "4.2", false},
+		{"ending inside the line v names", Span{Below: "4.2.1"}, "4.2", false},
+		{"the whole of it above", Span{From: "6.0", Below: "6.1"}, "4.2", false},
+
+		// An upper end nothing has closed reaches past any version.
+		{"no ceiling", Span{From: "1.0"}, "4.2", false},
+		{"neither end bound", Span{}, "4.2", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.s.Precedes(tt.v); got != tt.want {
+				t.Errorf("%+v.Precedes(%q) = %v; want %v", tt.s, tt.v, got, tt.want)
+			}
+		})
+	}
+}

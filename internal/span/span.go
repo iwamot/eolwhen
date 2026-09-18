@@ -92,6 +92,15 @@ func (s Span) Meets(lo, below string) bool {
 	return true
 }
 
+// Precedes reports whether every version this span allows is below v, which
+// is what a span older than anything a catalog tracks looks like. An upper
+// end nothing has closed reaches past any version and precedes nothing, and
+// the floor says nothing about it: a span may start below v and carry on
+// well past it.
+func (s Span) Precedes(v string) bool {
+	return s.Below != "" && !Lower(v, s.Below)
+}
+
 // Next is the version after v: 6.1.7.6 is followed by 6.1.7.7. It turns a
 // bound that admits its own version into one that does not, which is what
 // an exact requirement and a `<=` both need.
