@@ -50,8 +50,9 @@ have to be a git repository. One directory is read per run; to cover several,
 loop over them in the shell.
 
 Declarations are read from the runtime version files (.python-version,
-.nvmrc, .node-version, .ruby-version, the go directive in go.mod), the tool
-lists (mise.toml, .tool-versions), the FROM lines of any Dockerfile, the
+.nvmrc, .node-version, .ruby-version, .php-version, .go-version,
+.terraform-version, the go directive in go.mod), the tool lists (mise.toml,
+.tool-versions), the FROM lines of any Dockerfile, the
 image: of any Compose service, the gem lines of any Gemfile, the require of
 any composer.json, the dependencies of any package.json, pyproject.toml,
 requirements.txt or pom.xml, the target framework of any .csproj, .fsproj or

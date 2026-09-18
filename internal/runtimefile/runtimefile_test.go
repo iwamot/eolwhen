@@ -16,8 +16,15 @@ func TestProduct(t *testing.T) {
 		{".nvmrc", "nodejs", true},
 		{".node-version", "nodejs", true},
 		{".ruby-version", "ruby", true},
+		{".php-version", "php", true},
+		{".go-version", "go", true},
+		{".terraform-version", "terraform", true},
 		{"go.mod", "go", true},
 		{"package.json", "", false},
+		// A version manager writes 17 in this one and nothing else, and
+		// endoflife.date tracks nine builds of Java. The file settles which
+		// software no more than the bare number does.
+		{".java-version", "", false},
 		{"", "", false},
 	} {
 		got, ok := Product(tt.file)
@@ -36,6 +43,14 @@ func TestExtractCaught(t *testing.T) {
 	}{
 		{"bare version", ".python-version", "3.9.10\n",
 			[]decl.Decl{{Product: "python", Version: "3.9.10", Source: decl.Source{File: ".python-version", Line: 1}}}},
+		{"the tool a version manager pins", ".terraform-version", "1.5.7\n",
+			[]decl.Decl{{Product: "terraform", Version: "1.5.7", Source: decl.Source{File: ".terraform-version", Line: 1}}}},
+		{"a language a version manager pins", ".php-version", "8.1.2\n",
+			[]decl.Decl{{Product: "php", Version: "8.1.2", Source: decl.Source{File: ".php-version", Line: 1}}}},
+		// The same product a go.mod directive names, from the file goenv
+		// keeps it in.
+		{"go from its own file", ".go-version", "1.21.5\n",
+			[]decl.Decl{{Product: "go", Version: "1.21.5", Source: decl.Source{File: ".go-version", Line: 1}}}},
 		{"leading v", ".nvmrc", "v14.19.0\n",
 			[]decl.Decl{{Product: "nodejs", Version: "14.19.0", Source: decl.Source{File: ".nvmrc", Line: 1}}}},
 		{"rvm prefix", ".ruby-version", "ruby-2.6.2\n",
@@ -110,6 +125,11 @@ func TestExtractReported(t *testing.T) {
 		{"latest", ".node-version", "latest\n", "names a moving target, not a version"},
 		{"stable", ".ruby-version", "stable\n", "names a moving target, not a version"},
 		{"system", ".python-version", "system\n", "defers to whatever is installed"},
+		// tfenv writes three things that are not versions, and each of them
+		// follows something rather than naming one.
+		{"the newest terraform", ".terraform-version", "latest\n", "names a moving target, not a version"},
+		{"the newest matching one", ".terraform-version", "latest:^1.5\n", "names the newest release matching a pattern, not a version"},
+		{"whatever the configuration requires", ".terraform-version", "min-required\n", "defers to what the configuration requires"},
 		{"anything else", ".python-version", "anaconda3-2021.05\n", "is not a version"},
 		{"go directive is a word", "go.mod", "go tip\n", "is not a version"},
 		// The comment falls away before the line is read, so what is left
