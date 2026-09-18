@@ -59,7 +59,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `requirements*.txt`, and any `.txt` in a `requirements/` directory | the same, one requirement per line |
 | `*.csproj`, `*.fsproj`, `*.vbproj` | the target framework the project runs on — Microsoft .NET, or the .NET Framework |
 | `pom.xml` | the `<parent>` it builds on and each `<dependency>` whose group and artifact endoflife.date publishes, where this file settles the version |
-| `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
+| `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `-java`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
 A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A `mise.toml` key may carry a backend — `aqua:`, `go:`, `npm:` — and then it names a package rather than a tool. The backend is what fixes the registry, so the name is answered as a `Gemfile`'s is: through the purls endoflife.date publishes for that registry and through nothing else. `aqua:`, `github:` and `ubi:` install from a GitHub release and name the repository, which is a github purl; `cargo:`, `conda:`, `dotnet:`, `gem:`, `go:`, `npm:`, `pipx:` and `spm:` name their own registries; `core:` names one of mise's own tools, which a bare name reaches anyway. A backend with no registry to look a name up in — an asdf or vfox plugin, a download from a URL or a bucket — is passed over. A `.tool-versions` has no backends: asdf reads a plugin name and nothing else.
 
@@ -103,6 +103,21 @@ Upstream sometimes says the opposite: that a cycle is out of support, without pu
 A codename two products share is read as neither, since which one a tag meant would be a guess — and a codename is worth reading precisely because it needs none. The same word is what nvm writes in `.nvmrc` as `lts/hydrogen`, which is Node.js 18.
 
 A `FROM` written in terms of a build argument is read as `docker build` with no `--build-arg` resolves it, which is the build the file describes: the argument's default, or nothing at all when it was declared without one. That is what makes `FROM ${REGISTRY}python:3.11-bullseye` under a bare `ARG REGISTRY` read as the official image it falls back to. Only the arguments above the first `FROM` are in scope for one, which is Docker's own rule, and a name no `ARG` declares comes from outside the file, so the line is reported instead.
+
+### Which build of Java
+
+There is no such thing as a version of Java on its own. endoflife.date tracks nine builds of it — Temurin, Zulu, Corretto, Oracle's own and the rest — each with a calendar of its own, so `17` says nothing until something says whose 17 it is. That is why a `<maven.compiler.source>` in a `pom.xml` and a `.java-version` are not read: neither names a build.
+
+`actions/setup-java` does, in an input of its own:
+
+```yaml
+- uses: actions/setup-java@v4
+  with:
+    distribution: temurin
+    java-version: '8'
+```
+
+The value is a closed vocabulary the action defines, and the catalog already answers to most of it — `temurin` is Eclipse Temurin and `corretto` is Amazon Corretto by upstream's own aliases — so the word is handed on as it was written. Only `oracle` and `microsoft`, which the catalog has no alias for, are spelled its way instead. A distribution it knows nothing about is passed over like any other software it does not track, and a step naming none installs nothing this can date.
 
 ### What a matrix declares
 
@@ -312,6 +327,9 @@ Debian is usually the half that expires first. A FROM written in terms of a
 build argument is read as a docker build with no --build-arg resolves it,
 and a version given as ${{ matrix.* }} is read from the job's own
 strategy.matrix, which is where a project says which versions it supports.
+There is no version of Java on its own — endoflife.date tracks nine builds
+of it, each with a calendar — so setup-java is read through the distribution
+it names beside the version, and a step naming none installs nothing to date.
 
 Every expired declaration is printed, oldest first, together with the ones
 still ahead. A version older than every cycle endoflife.date tracks gets a

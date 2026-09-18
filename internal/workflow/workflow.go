@@ -22,16 +22,38 @@ const Runners = "github-actions-runner-images"
 // setups are the actions that install a runtime, with the input that carries
 // its version. Each is listed because it was checked: an action named
 // setup-something is not on its own a promise about what it installs.
+//
+// One of them names no software by itself. There is no such thing as a
+// version of Java on its own — endoflife.date tracks nine builds of it, each
+// with a calendar of its own — so setup-java says which in an input beside
+// the version, and Names carries where to read the software rather than
+// Product carrying it.
 var setups = map[string]struct {
 	Input   string
 	Product string
+	Names   string
 }{
-	"actions/setup-node":     {"node-version", "node"},
-	"actions/setup-python":   {"python-version", "python"},
-	"actions/setup-go":       {"go-version", "go"},
-	"actions/setup-dotnet":   {"dotnet-version", "dotnet"},
-	"ruby/setup-ruby":        {"ruby-version", "ruby"},
-	"shivammathur/setup-php": {"php-version", "php"},
+	"actions/setup-node":     {Input: "node-version", Product: "node"},
+	"actions/setup-python":   {Input: "python-version", Product: "python"},
+	"actions/setup-go":       {Input: "go-version", Product: "go"},
+	"actions/setup-dotnet":   {Input: "dotnet-version", Product: "dotnet"},
+	"actions/setup-java":     {Input: "java-version", Names: "distribution"},
+	"ruby/setup-ruby":        {Input: "ruby-version", Product: "ruby"},
+	"shivammathur/setup-php": {Input: "php-version", Product: "php"},
+}
+
+// distributions are the builds of Java the catalog answers to under another
+// name than the one setup-java writes. It answers to most of them already —
+// temurin is eclipse-temurin and corretto is amazon-corretto by upstream's
+// own aliases — so what is here is the two it has no alias for. The value is
+// a closed vocabulary the action defines, which is what makes translating it
+// a reading rather than a guess.
+//
+// A distribution this does not name is handed on as it was written, and
+// whether anything is known about it is the catalog's to say.
+var distributions = map[string]string{
+	"microsoft": "microsoft-build-of-openjdk",
+	"oracle":    "oracle-jdk",
 }
 
 // families are the runner images GitHub hosts. A label outside them names
@@ -315,6 +337,14 @@ func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
 	if !ok {
 		return
 	}
+	product := setup.Product
+	if setup.Names != "" {
+		named, ok := r.installs(with, setup.Names)
+		if !ok {
+			return
+		}
+		product = named
+	}
 	for _, e := range with {
 		if e.Key != setup.Input {
 			continue
@@ -349,10 +379,42 @@ func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
 					r.report(v, oneLine(line), reason, moving)
 					continue
 				}
-				r.declare(v, setup.Product, got)
+				r.declare(v, product, got)
 			}
 		}
 	}
+}
+
+// installs reads the input that says which software a step installs, which
+// is setup-java's distribution and nothing else so far. A build of Java is
+// what has a calendar; which one it is is not a thing to work out from the
+// version beside it.
+//
+// A step that does not say is left without a word. setup-java requires the
+// input, so a step missing it does not run, and there is nothing to report
+// about a step that never was. An expression is reported like any other this
+// file cannot work out.
+func (r *reader) installs(with []yamlfile.Entry, input string) (string, bool) {
+	e, found := yamlfile.Find(with, input)
+	if !found {
+		return "", false
+	}
+	name, ok := e.Scalar()
+	if !ok {
+		return "", false
+	}
+	if strings.Contains(name, "${{") {
+		r.report(e, oneLine(name), "takes its distribution from an expression", false)
+		return "", false
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return "", false
+	}
+	if product, ok := distributions[name]; ok {
+		return product, true
+	}
+	return name, true
 }
 
 // version turns a setup-* version input into a version, or says why it is

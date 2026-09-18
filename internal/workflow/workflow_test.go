@@ -124,6 +124,30 @@ func TestSetup(t *testing.T) {
 	t.Run("php", func(t *testing.T) {
 		check(t, step("shivammathur/setup-php@v2", "php-version", "'8.1'"), want{"php", "8.1", 0})
 	})
+	// Java is the one that installs no single software: the distribution
+	// says which build of it, and the catalog dates the build.
+	t.Run("java", func(t *testing.T) {
+		for _, tt := range []struct{ distribution, product string }{
+			// Most are names the catalog already answers to, by upstream's
+			// own aliases, so they are handed on as written.
+			{"temurin", "temurin"},
+			{"corretto", "corretto"},
+			{"zulu", "zulu"},
+			{"Temurin", "temurin"},
+			// The two it has no alias for are the ones named here.
+			{"oracle", "oracle-jdk"},
+			{"microsoft", "microsoft-build-of-openjdk"},
+			// One it knows nothing about is handed on all the same, and
+			// what is known about it is the catalog's to say.
+			{"jetbrains", "jetbrains"},
+		} {
+			t.Run(tt.distribution, func(t *testing.T) {
+				body := "jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@v4\n        with:\n" +
+					"          distribution: " + tt.distribution + "\n          java-version: '17'\n"
+				check(t, body, want{tt.product, "17", 7})
+			})
+		}
+	})
 	// A version written without quotes is a number to the parser and text to
 	// everyone else. 3.10 must stay 3.10 and not become 3.1.
 	t.Run("unquoted", func(t *testing.T) {
@@ -139,6 +163,26 @@ func TestSetup(t *testing.T) {
 		body := "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: |\n            18\n            20\n"
 		check(t, body, want{"node", "18", 0}, want{"node", "20", 0})
 	})
+}
+
+// A step that does not say which build of Java it installs names no software
+// with a calendar of its own. setup-java requires the input, so a step
+// missing it does not run, and there is nothing to report about one that
+// never was.
+func TestJavaWithoutADistribution(t *testing.T) {
+	for _, tt := range []struct{ name, with string }{
+		{"none at all", "          java-version: '17'\n"},
+		{"one that is not a scalar", "          distribution:\n            - temurin\n          java-version: '17'\n"},
+		{"an empty one", "          distribution: ''\n          java-version: '17'\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := "jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@v4\n        with:\n" + tt.with
+			ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("= %+v, %+v; want neither", ds, us)
+			}
+		})
+	}
 }
 
 func TestReported(t *testing.T) {
@@ -176,6 +220,10 @@ func TestReported(t *testing.T) {
 			"${{ github.repository == 'x/y' && 'big' || 'ubuntu-22.04' }}", "takes its runner from an expression"},
 		{"a word where a version goes", "jobs:\n  a:\n    steps:\n      - uses: ruby/setup-ruby@v1\n        with:\n          ruby-version: ruby\n",
 			"ruby", "is not a version"},
+		// Which build of Java a matrix lists would have to be paired with
+		// the versions beside it, which is a run's answer and not this one's.
+		{"a distribution from an expression", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@v4\n        with:\n          distribution: ${{ matrix.dist }}\n          java-version: '17'\n",
+			"${{ matrix.dist }}", "takes its distribution from an expression"},
 		{"a range", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-go@v5\n        with:\n          go-version: '^1.21'\n",
 			"^1.21", "is not a version"},
 	} {

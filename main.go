@@ -95,6 +95,9 @@ Debian is usually the half that expires first. A FROM written in terms of a
 build argument is read as a docker build with no --build-arg resolves it,
 and a version given as ${{ matrix.* }} is read from the job's own
 strategy.matrix, which is where a project says which versions it supports.
+There is no version of Java on its own — endoflife.date tracks nine builds
+of it, each with a calendar — so setup-java is read through the distribution
+it names beside the version, and a step naming none installs nothing to date.
 
 Every expired declaration is printed, oldest first, together with the ones
 still ahead. A version older than every cycle endoflife.date tracks gets a
