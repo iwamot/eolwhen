@@ -167,17 +167,30 @@ func TestNotes(t *testing.T) {
 			[]string{"go.mod:9: go 1.26 has no end-of-life date yet", "nothing declared in dir has an end-of-life date yet"}},
 		// A cycle upstream calls over without dating it has no row either,
 		// and the line says the opposite of the one above: there is
-		// something to do and no day to put it on.
+		// something to do and no day to put it on. It is said whether or
+		// not the reader asked for detail, that being the question they ran
+		// the tool with.
 		{"something is out of support with no date", resolve.Result{Ended: []timeline.Undated{ended}}, nil, cliArgs{},
-			[]string{"something declared in dir is out of support, but endoflife.date has published no date for it"}},
-		// The one line in the block that asks for anything is printed
-		// first, ahead of the lines that ask for nothing.
+			[]string{
+				"compose.yml:4: metabase 0.46 is out of support, with no date published",
+				"nothing declared in dir has a date to put on the timeline",
+			}},
+		// The same cycle declared in several places is one thing to know,
+		// folded the way a repeated complaint is.
+		{"the same ended cycle from several places",
+			resolve.Result{Ended: []timeline.Undated{ended, {Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 9}}}}, nil, cliArgs{},
+			[]string{
+				"compose.yml:4: metabase 0.46 is out of support, with no date published (and 1 more)",
+				"nothing declared in dir has a date to put on the timeline",
+			}},
+		// What --verbose adds is the lines that ask for nothing; the ended
+		// cycle above them was printed without being asked for.
 		{"which lines those were, when asked", resolve.Result{Ended: []timeline.Undated{ended}, Moving: []decl.Unreadable{m}, Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true},
 			[]string{
 				"compose.yml:4: metabase 0.46 is out of support, with no date published",
 				".github/workflows/ci.yml:3: ubuntu-latest follows the newest release",
 				"go.mod:9: go 1.26 has no end-of-life date yet",
-				"something declared in dir is out of support, but endoflife.date has published no date for it",
+				"nothing declared in dir has a date to put on the timeline",
 			}},
 		// A line that could not be read leaves the answer short of what the
 		// directory declares, which outranks anything that had no date.
