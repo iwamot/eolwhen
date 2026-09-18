@@ -116,6 +116,22 @@ func AfterLine(v string) (string, bool) {
 	return bump(parts, max(len(parts)-2, 0)), true
 }
 
+// AfterMinor is where the line v names runs out when the minor is the last
+// segment held, which is what npm's tilde means: ~1.2.3 and ~1.2 both stop
+// at 1.3, while ~1 has no minor to hold and stops at 2.
+//
+// It parts from AfterLine at two segments and nowhere else. Composer reads
+// ~1.2 as holding the major alone and stops at 2, npm as holding the minor
+// and stops at 1.3, and the same three characters mean different things in
+// the two files.
+func AfterMinor(v string) (string, bool) {
+	parts, ok := numbers(v)
+	if !ok {
+		return "", false
+	}
+	return bump(parts, min(1, len(parts)-1)), true
+}
+
 // AfterCompatible is where the line v names runs out when everything after
 // its first meaningful segment is free to move, which is what a caret
 // means: `^8.1` stops at 9. A leading zero says nothing about
