@@ -82,16 +82,96 @@ func TestMiseToml(t *testing.T) {
 	})
 }
 
-// TestBackendKeysAreSkipped: a key carrying a backend names a package in a
-// registry anyone can publish to, where the name is not a promise about what
-// the software is.
-func TestBackendKeysAreSkipped(t *testing.T) {
+// TestBackendKeys covers the keys that name a package rather than a tool.
+// The backend is what fixes the registry, which is what lets the name be
+// answered through the purls upstream publishes for it.
+func TestBackendKeys(t *testing.T) {
 	body := "[tools]\n" +
 		"\"aqua:goreleaser/goreleaser\" = \"2.18.1\"\n" +
-		"\"go:golang.org/x/vuln/cmd/govulncheck\" = \"v1.8.0\"\n" +
-		"\"npm:typescript\" = \"5.9.0\"\n" +
-		"node = \"24.21.0\"\n"
-	check(t, "mise.toml", body, want{"node", "24.21.0", 5})
+		"\"go:github.com/caddyserver/caddy/v2\" = \"v2.8.4\"\n" +
+		"\"npm:@types/node\" = \"24.0.0\"\n" +
+		"\"pipx:ansible\" = \"11.1.0\"\n" +
+		"node = \"24.21.0\"\n" +
+		// A backend nobody publishes purls of has no table to answer its
+		// names from, and one that installs from a URL names no registry at
+		// all. Both are passed over.
+		"\"vfox:nodejs\" = \"24.0.0\"\n" +
+		"\"http:something\" = \"1.0.0\"\n"
+	ds, us := Extract("mise.toml", []byte(body))
+	if len(us) != 0 {
+		t.Fatalf("unreadable = %+v; want none", us)
+	}
+	want := []decl.Decl{
+		{Ecosystem: "github", Product: "goreleaser/goreleaser", Version: "2.18.1", Source: decl.Source{File: "mise.toml", Line: 2}},
+		{Ecosystem: "golang", Product: "github.com/caddyserver/caddy/v2", Version: "2.8.4", Source: decl.Source{File: "mise.toml", Line: 3}},
+		{Ecosystem: "npm", Product: "@types/node", Version: "24.0.0", Source: decl.Source{File: "mise.toml", Line: 4}},
+		{Ecosystem: "pypi", Product: "ansible", Version: "11.1.0", Source: decl.Source{File: "mise.toml", Line: 5}},
+		// A key with no backend names a tool, whose identity the name
+		// settles on its own.
+		{Product: "node", Version: "24.21.0", Source: decl.Source{File: "mise.toml", Line: 6}},
+	}
+	if len(ds) != len(want) {
+		t.Fatalf("declarations = %+v; want %+v", ds, want)
+	}
+	for i, w := range want {
+		if ds[i] != w {
+			t.Errorf("[%d] = %+v; want %+v", i, ds[i], w)
+		}
+	}
+}
+
+// A version a backend key cannot settle is still a line about that package,
+// so what the catalog knows about the name can still decide whether it is
+// worth a word.
+func TestBackendKeyWithNoVersion(t *testing.T) {
+	ds, us := Extract("mise.toml", []byte("[tools]\n\"npm:typescript\" = \"latest\"\n"))
+	want := decl.Unreadable{
+		Source:    decl.Source{File: "mise.toml", Line: 2},
+		Ecosystem: "npm",
+		Product:   "typescript",
+		Text:      "latest",
+		Reason:    "names a moving target, not a version",
+		Moving:    true,
+	}
+	if len(ds) != 0 || len(us) != 1 || us[0] != want {
+		t.Errorf("= %+v, %+v; want the one set-aside line", ds, us)
+	}
+}
+
+func TestBackend(t *testing.T) {
+	for _, tt := range []struct {
+		key             string
+		ecosystem, name string
+		ok              bool
+	}{
+		{"node", "", "node", true},
+		// A core tool is the one a bare name already reaches.
+		{"core:node", "", "node", true},
+		{"aqua:owner/repo", "github", "owner/repo", true},
+		{"github:owner/repo", "github", "owner/repo", true},
+		{"ubi:owner/repo", "github", "owner/repo", true},
+		{"cargo:ripgrep", "cargo", "ripgrep", true},
+		{"gem:rails", "gem", "rails", true},
+		{"go:github.com/x/y", "golang", "github.com/x/y", true},
+		{"npm:typescript", "npm", "typescript", true},
+		{"pipx:ansible", "pypi", "ansible", true},
+		{"conda:numpy", "conda", "numpy", true},
+		{"dotnet:dotnetsay", "nuget", "dotnetsay", true},
+		{"spm:apple/swift-format", "swift", "apple/swift-format", true},
+		// No registry to answer a name from, and no name to answer.
+		{"vfox:nodejs", "", "", false},
+		{"asdf:java", "", "", false},
+		{"http:tool", "", "", false},
+		{"gitlab:owner/repo", "", "", false},
+		{"npm:", "", "", false},
+	} {
+		t.Run(tt.key, func(t *testing.T) {
+			ecosystem, name, ok := backend(tt.key)
+			if ecosystem != tt.ecosystem || name != tt.name || ok != tt.ok {
+				t.Errorf("backend(%q) = %q, %q, %v; want %q, %q, %v", tt.key, ecosystem, name, ok, tt.ecosystem, tt.name, tt.ok)
+			}
+		})
+	}
 }
 
 func TestToolVersions(t *testing.T) {

@@ -7,11 +7,12 @@
 // end-of-life policy at all. The names are read as written and handed on;
 // deciding which of them anything is known about is the catalog's job.
 //
-// Only a bare tool name is read. A key carrying a backend — aqua:, go:,
-// npm:, pipx: — names a package rather than a tool, and a package is read
-// where the file it sits in fixes the registry, as a Gemfile and a
-// composer.json do. A backend written as a prefix on a key is not read that
-// way yet.
+// A key may carry a backend — aqua:, go:, npm:, pipx: — and then it names a
+// package rather than a tool. The backend is what fixes the registry, which
+// is what lets the name be answered the way a Gemfile's is: through the
+// purls upstream publishes for that registry and through nothing else. A
+// backend that names no registry — an asdf plugin, a download from a URL —
+// is passed over, there being no table to answer its names from.
 package toolfile
 
 import (
@@ -57,15 +58,14 @@ func miseToml(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	lines := lineOf(data)
 	var ds []decl.Decl
 	var us []decl.Unreadable
-	for _, name := range inFileOrder(doc.Tools, lines) {
-		if strings.Contains(name, ":") {
-			// A backend-qualified key names a package, not a tool whose
-			// identity the name settles.
+	for _, key := range inFileOrder(doc.Tools, lines) {
+		ecosystem, name, ok := backend(key)
+		if !ok {
 			continue
 		}
-		src := decl.Source{File: path, Line: lines[name]}
-		for _, v := range versionsOf(md, doc.Tools[name]) {
-			d, u, ok := read(name, v, src)
+		src := decl.Source{File: path, Line: lines[key]}
+		for _, v := range versionsOf(md, doc.Tools[key]) {
+			d, u, ok := read(ecosystem, name, v, src)
 			if ok {
 				ds = append(ds, d)
 			} else {
@@ -108,11 +108,13 @@ func toolVersions(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 		}
 		name := fields[0]
 		if strings.Contains(name, ":") {
+			// asdf reads a plugin name and nothing else, so a colon here is
+			// not a backend and names nothing this can look up.
 			continue
 		}
 		src := decl.Source{File: path, Line: i + 1}
 		for _, v := range fields[1:] {
-			d, u, ok := read(name, v, src)
+			d, u, ok := read("", name, v, src)
 			if ok {
 				ds = append(ds, d)
 			} else {
@@ -123,9 +125,56 @@ func toolVersions(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	return ds, us
 }
 
+// backends are the mise backends whose key names a package, and the purl
+// type that package belongs to. aqua, github and ubi install from a GitHub
+// release and name the repository it comes from, which is what
+// endoflife.date publishes as a github purl; the rest name a registry of
+// their own.
+//
+// The backends left out are the ones with no registry to look a name up in:
+// an asdf or vfox plugin, a download from a URL or a bucket, a forge no purl
+// type covers.
+var backends = map[string]string{
+	"aqua":   "github",
+	"github": "github",
+	"ubi":    "github",
+	"cargo":  "cargo",
+	"conda":  "conda",
+	"dotnet": "nuget",
+	"gem":    "gem",
+	"go":     "golang",
+	"npm":    "npm",
+	"pipx":   "pypi",
+	"spm":    "swift",
+}
+
+// backend reads a tool list key: the registry its name belongs to, and the
+// name. A key with no backend names a tool, whose identity the name settles
+// on its own. ok is false for a backend with no registry to read from, and
+// for one with no name after it.
+func backend(key string) (ecosystem, name string, ok bool) {
+	prefix, rest, found := strings.Cut(key, ":")
+	if !found {
+		return "", key, true
+	}
+	if rest == "" {
+		return "", "", false
+	}
+	// mise's core tools are the ones a bare name already reaches, so the
+	// backend says nothing about the name: core:node is node.
+	if prefix == "core" {
+		return "", rest, true
+	}
+	ecosystem, known := backends[prefix]
+	if !known {
+		return "", "", false
+	}
+	return ecosystem, rest, true
+}
+
 // read turns one tool and one version into a declaration, or into the reason
 // it is not one.
-func read(name, v string, src decl.Source) (decl.Decl, decl.Unreadable, bool) {
+func read(ecosystem, name, v string, src decl.Source) (decl.Decl, decl.Unreadable, bool) {
 	version := strings.TrimPrefix(v, "v")
 	if strings.Contains(version, ":") {
 		// ref:main, prefix:1.27, sub-2:lts — each defers the choice to
@@ -136,9 +185,9 @@ func read(name, v string, src decl.Source) (decl.Decl, decl.Unreadable, bool) {
 		// The tool is named apart from the version, so that whether the
 		// catalog tracks it can still decide if this line is worth a word.
 		r, moving := reason(v)
-		return decl.Decl{}, decl.Unreadable{Source: src, Product: name, Text: v, Reason: r, Moving: moving}, false
+		return decl.Decl{}, decl.Unreadable{Source: src, Ecosystem: ecosystem, Product: name, Text: v, Reason: r, Moving: moving}, false
 	}
-	return decl.Decl{Product: name, Version: version, Source: src}, decl.Unreadable{}, true
+	return decl.Decl{Ecosystem: ecosystem, Product: name, Version: version, Source: src}, decl.Unreadable{}, true
 }
 
 // reason says why a version could not be used, and whether the line names no

@@ -49,7 +49,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `.nvmrc`, `.node-version` | Node.js |
 | `.ruby-version` | Ruby |
 | `go.mod` (the `go` directive) | Go |
-| `mise.toml`, `.mise.toml`, `.tool-versions` | each tool listed under a bare name |
+| `mise.toml`, `.mise.toml`, `.tool-versions` | each tool listed under a bare name, and each package a `mise.toml` key names through a backend |
 | `Dockerfile`, `Dockerfile.*` | whatever each `FROM` names — an official image, or any image endoflife.date publishes a purl for — and the distribution its tag was built on |
 | `compose*.yml`, `docker-compose*.yml` (and `.yaml`) | the same, for each service's `image:`, unless the service has a `build:` and the image is what it builds |
 | `Gemfile`, `gems.rb` | each `gem` whose name endoflife.date publishes as a gem — the framework the application sits on, not the libraries around it |
@@ -60,7 +60,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `*.csproj`, `*.fsproj`, `*.vbproj` | the target framework the project runs on — Microsoft .NET, or the .NET Framework |
 | `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
-A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A key carrying a backend — `aqua:`, `go:`, `npm:` — names a package rather than a tool, and a package is read where the file it sits in fixes the registry, as a `Gemfile` and a `composer.json` do. A backend written as a prefix on a key is not read that way yet.
+A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A `mise.toml` key may carry a backend — `aqua:`, `go:`, `npm:` — and then it names a package rather than a tool. The backend is what fixes the registry, so the name is answered as a `Gemfile`'s is: through the purls endoflife.date publishes for that registry and through nothing else. `aqua:`, `github:` and `ubi:` install from a GitHub release and name the repository, which is a github purl; `cargo:`, `conda:`, `dotnet:`, `gem:`, `go:`, `npm:`, `pipx:` and `spm:` name their own registries; `core:` names one of mise's own tools, which a bare name reaches anyway. A backend with no registry to look a name up in — an asdf or vfox plugin, a download from a URL or a bucket — is passed over. A `.tool-versions` has no backends: asdf reads a plugin name and nothing else.
 
 The directory is searched to the bottom, so a monorepo's `packages/web/.nvmrc` and a `docker/Dockerfile` are both found. Directories holding somebody else's code — `node_modules`, `vendor`, `third_party`, `.venv`, `.git` and the like — are skipped, because a `.nvmrc` inside a dependency is its author's declaration and not this directory's.
 
