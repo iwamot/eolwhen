@@ -227,7 +227,8 @@ func TestTableShowsTheBoundaryWithoutASign(t *testing.T) {
 func TestJSON(t *testing.T) {
 	fs := []Finding{{Product: "python", Cycle: "2.7", EOL: at("2020-01-01"), Source: decl.Source{File: ".python-version", Line: 1}}}
 	us := []decl.Unreadable{{Source: decl.Source{File: ".nvmrc", Line: 1}, Product: "nodejs", Text: "lts/hydrogen", Reason: "names a moving target, not a version"}}
-	got := JSON(Report{Directory: "some/dir", Findings: fs, Unreadable: us, Hidden: 2,
+	moving := []decl.Unreadable{{Source: decl.Source{File: "compose.yml", Line: 2}, Text: "postgres:latest", Reason: "names latest, not a version"}}
+	got := JSON(Report{Directory: "some/dir", Findings: fs, Unreadable: us, Hidden: 2, Moving: moving,
 		Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}},
 		Undated:   []Undated{{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}},
 		Ended:     []Undated{{Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 4}}}}, now)
@@ -252,16 +253,19 @@ func TestJSON(t *testing.T) {
 		// of undated a cycle was.
 		`"source": "compose.yml:4"`,
 		`"product": "metabase"`,
+		// A line following the newest release is a field here too, so that
+		// --json owes a caller nothing --verbose would have said.
+		`"text": "postgres:latest"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("JSON is missing %s:\n%s", want, got)
 		}
 	}
 	// Every list is always an array, so a caller can index without a nil
-	// check, and the two --verbose lists are empty unless they were asked
+	// check, and the lists --verbose fills are empty unless they were asked
 	// for.
 	empty := JSON(Report{Directory: "."}, now)
-	for _, want := range []string{`"findings": []`, `"unreadable": []`, `"untracked": []`, `"undated": []`, `"ended": []`, `"hidden": 0`} {
+	for _, want := range []string{`"findings": []`, `"unreadable": []`, `"moving": []`, `"untracked": []`, `"undated": []`, `"ended": []`, `"hidden": 0`} {
 		if !strings.Contains(empty, want) {
 			t.Errorf("JSON with nothing is missing %s:\n%s", want, empty)
 		}
