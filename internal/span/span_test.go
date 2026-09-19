@@ -191,6 +191,11 @@ func TestMeets(t *testing.T) {
 		{"no ceiling, reaching up", Span{From: "6.1"}, "9.0", "9.1", true},
 		{"no ceiling, stopped by the floor", Span{From: "6.1"}, "5.2", "5.3", false},
 		{"neither end bound", Span{}, "6.1", "6.2", true},
+
+		// A span that allows nothing has nothing in common with anything,
+		// however the cycle it would otherwise reach is placed.
+		{"empty, around the cycle", Span{From: "18.9.0", Below: "18.1.0"}, "18", "19", false},
+		{"empty, ends the same", Span{From: "18", Below: "18"}, "18", "19", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,11 +227,41 @@ func TestPrecedes(t *testing.T) {
 		// An upper end nothing has closed reaches past any version.
 		{"no ceiling", Span{From: "1.0"}, "4.2", false},
 		{"neither end bound", Span{}, "4.2", false},
+
+		// A span that allows nothing has no version in it to be below v.
+		{"empty, ending below v", Span{From: "9", Below: "2.7"}, "2.7", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.s.Precedes(tt.v); got != tt.want {
 				t.Errorf("%+v.Precedes(%q) = %v; want %v", tt.s, tt.v, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		s    Span
+		want bool
+	}{
+		// A floor at or above the ceiling leaves no version between them.
+		{"the floor above the ceiling", Span{From: "18.9.0", Below: "18.1.0"}, true},
+		{"the floor at the ceiling", Span{From: "18", Below: "18"}, true},
+		{"the floor at the ceiling, padded", Span{From: "18.0.0", Below: "18"}, true},
+
+		// The usual span, and the ones an end nothing has set leaves open:
+		// there is no bound there to close against.
+		{"the floor below the ceiling", Span{From: "18", Below: "19"}, false},
+		{"no ceiling", Span{From: "18"}, false},
+		{"no floor", Span{Below: "18"}, false},
+		{"neither end bound", Span{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.s.Empty(); got != tt.want {
+				t.Errorf("%+v.Empty() = %v; want %v", tt.s, got, tt.want)
 			}
 		})
 	}

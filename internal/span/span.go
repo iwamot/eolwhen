@@ -79,10 +79,22 @@ func (s Span) Narrow(op, v string) (Span, bool) {
 	return s, false
 }
 
+// Empty reports whether the ends leave nothing between them, which is what a
+// requirement no version can meet looks like: `>=18.9.0 <18.1.0` allows
+// nothing at all. An end nothing has set is no bound, and leaves the other
+// nothing to close against, so a span open at either end is never empty.
+func (s Span) Empty() bool {
+	return s.From != "" && s.Below != "" && !Lower(s.From, s.Below)
+}
+
 // Meets reports whether this span and the versions from lo up to below have
 // any in common, which is true when each range starts before the other ends.
-// An end nothing has set stops nothing.
+// An end nothing has set stops nothing, and a span that allows nothing has
+// nothing in common with anything.
 func (s Span) Meets(lo, below string) bool {
+	if s.Empty() {
+		return false
+	}
 	if s.From != "" && !Lower(s.From, below) {
 		return false
 	}
@@ -96,9 +108,10 @@ func (s Span) Meets(lo, below string) bool {
 // is what a span older than anything a catalog tracks looks like. An upper
 // end nothing has closed reaches past any version and precedes nothing, and
 // the floor says nothing about it: a span may start below v and carry on
-// well past it.
+// well past it. A span that allows nothing precedes nothing either, there
+// being no version in it to be below v.
 func (s Span) Precedes(v string) bool {
-	return s.Below != "" && !Lower(v, s.Below)
+	return !s.Empty() && s.Below != "" && !Lower(v, s.Below)
 }
 
 // Next is the version after v: 6.1.7.6 is followed by 6.1.7.7. It turns a

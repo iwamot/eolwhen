@@ -463,6 +463,31 @@ func TestAllDoesNotPlaceARangeReachingTheCatalogBelowEveryCycle(t *testing.T) {
 	}
 }
 
+// TestAllReportsARangeNoVersionCanBeIn: a floor at or above the ceiling
+// admits nothing, so there is no version behind the line and no date it
+// could be given. The two ways one would otherwise be dated are a cycle the
+// ends happen to straddle, and the timeline's oldest cycle.
+func TestAllReportsARangeNoVersionCanBeIn(t *testing.T) {
+	c := loadPkg(t)
+	for _, tt := range []struct{ name, text, from, below string }{
+		{"around a cycle", ">= 6.1.9, < 6.1.1", "6.1.9", "6.1.1"},
+		{"ending below every cycle", ">= 9.0, < 3.0", "9.0", "3.0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := All(c, []decl.Decl{gem("rails", tt.text, tt.from, tt.below)}, nil)
+			if len(r.Findings) != 0 || len(r.Moving) != 0 {
+				t.Fatalf("Findings = %+v, Moving = %+v; want neither", r.Findings, r.Moving)
+			}
+			if len(r.Unreadable) != 1 {
+				t.Fatalf("Unreadable = %+v; want 1", r.Unreadable)
+			}
+			if r.Unreadable[0].Reason != "names a range no version can be in" {
+				t.Errorf("Reason = %q", r.Unreadable[0].Reason)
+			}
+		})
+	}
+}
+
 // TestAllReadsAPackageNameThroughPurlsAlone is the whole reason a package
 // line carries its ecosystem. The gem pg is the PostgreSQL driver, and the
 // database answering to pg as an alias would date a Gemfile line by the

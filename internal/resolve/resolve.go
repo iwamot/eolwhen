@@ -251,8 +251,14 @@ func (r *Result) place(product, cycle string, release catalog.Release, src decl.
 }
 
 // unmatched says why a version reached no cycle, and whether the line was
-// following the newest release rather than naming one. Four things are true
+// following the newest release rather than naming one. Five things are true
 // at this point and each leaves the reader somewhere different.
+//
+// A range whose floor sits at or above its ceiling holds no version at all,
+// so nothing was ever going to install and no date belongs to it. That is a
+// mistake in the file rather than a line following the newest release, and
+// it is answered first: every question below it is about a range something
+// can be in.
 //
 // A range that sits inside no one cycle names no version to date. Which
 // version a manifest's range became is a resolver's answer, written in the
@@ -276,6 +282,8 @@ func (r *Result) place(product, cycle string, release catalog.Release, src decl.
 func unmatched(p catalog.Product, d decl.Decl) (reason string, moving bool) {
 	v := d.Version
 	switch {
+	case d.Allows.Empty():
+		return "names a range no version can be in", false
 	case d.Allows.Closed():
 		return "names a range of versions rather than one, so the lockfile decides which one", true
 	case p.Numbered() && (v == "" || v[0] < '0' || v[0] > '9'):
