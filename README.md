@@ -196,6 +196,7 @@ Exit codes:
   2  nothing has expired, but something will
   3  usage error: fix the flags or the directory
   4  endoflife.date could not be read: check the network, then retry
+```
 
 - A release cycle's end-of-life date is the first day without support, so something due today reads as `0d` and counts as expired. The sign says which side of today a date falls on, and the day it lands on takes none. Days are counted between calendar days, and today is today where you are: endoflife.date publishes a date rather than a moment, so counting from anyone else's calendar would put a date and a number that disagree on the same row.
 - Rows are ordered by the date itself, oldest first, so the timeline runs in one direction and the most overdue reads at the top.
