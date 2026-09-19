@@ -225,7 +225,11 @@ func TestTableShowsTheBoundaryWithoutASign(t *testing.T) {
 }
 
 func TestJSON(t *testing.T) {
-	fs := []Finding{{Product: "python", Cycle: "2.7", EOL: at("2020-01-01"), Source: decl.Source{File: ".python-version", Line: 1}}}
+	fs := []Finding{{
+		Product: "python", Cycle: "2.7", Version: "2.7.18",
+		Matched: ByName, Dated: DatedByCycle, Page: "https://endoflife.date/python",
+		EOL: at("2020-01-01"), Source: decl.Source{File: ".python-version", Line: 1},
+	}}
 	us := []decl.Unreadable{{Source: decl.Source{File: ".nvmrc", Line: 1}, Product: "nodejs", Text: "lts/hydrogen", Reason: "names a moving target, not a version"}}
 	moving := []decl.Unreadable{{Source: decl.Source{File: "compose.yml", Line: 2}, Text: "postgres:latest", Reason: "names latest, not a version"}}
 	got := JSON(Report{Directory: "some/dir", Findings: fs, Unreadable: us, Hidden: 2, Moving: moving,
@@ -241,6 +245,13 @@ func TestJSON(t *testing.T) {
 		`"days": -2450`,
 		`"past": true`,
 		`"source": ".python-version:1"`,
+		// What the row was worked out from: the version the file wrote,
+		// which the cycle no longer shows, how the name was answered, and
+		// that the day is the cycle's own rather than one carried over.
+		`"version": "2.7.18"`,
+		`"matched": "name"`,
+		`"dated": "cycle"`,
+		`"link": "https://endoflife.date/python"`,
 		`"product": "nodejs"`,
 		`"text": "lts/hydrogen"`,
 		// What a window hid, and what --verbose asked about, are fields here
@@ -297,5 +308,18 @@ func TestDaysUsesTheAskersCalendar(t *testing.T) {
 	evening := time.Date(2026, 9, 16, 20, 0, 0, 0, pst)
 	if got := Days(evening, f); got != 1 {
 		t.Errorf("Days = %d; want 1, the day after where the reader is", got)
+	}
+}
+
+// The two sides of one convention: a version below everything tracked is
+// named after the oldest cycle it sits under, and the name reads back to
+// that cycle so a sentence can say which day it was.
+func TestPredatingCycle(t *testing.T) {
+	name := PredatingCycle("4.0")
+	if name != "<4.0" {
+		t.Errorf("PredatingCycle = %q; want %q", name, "<4.0")
+	}
+	if got := OldestCycle(name); got != "4.0" {
+		t.Errorf("OldestCycle(%q) = %q; want %q", name, got, "4.0")
 	}
 }

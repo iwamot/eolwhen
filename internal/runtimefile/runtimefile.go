@@ -113,10 +113,18 @@ func versionLines(path string, f File, data []byte) ([]decl.Decl, []decl.Unreada
 	return ds, us
 }
 
-// goMod reads the go directive. The toolchain directive is left alone: it
-// names the toolchain used to build, while the go directive is the language
-// version the module promises to work with, which is the one whose support
-// window matters.
+// goMod reads the go directive, which is the language version the module
+// promises to work with and the lowest toolchain it will build under. Its
+// support window is worth checking like any other declared version.
+//
+// It is not a pin of what runs. Since Go 1.21 the go command will fetch a
+// newer toolchain when the one to hand is older than the directive asks
+// for, and a toolchain directive in the same file may name a newer one
+// outright. So a go 1.16 says the module still supports a Go that lost
+// support years ago; it does not say anything is being built with it. The
+// toolchain directive is left alone for the same reason the rest of the
+// tool leaves resolution alone: which toolchain a build picks up is the go
+// command's answer, settled where the build runs and not in this file.
 func goMod(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 	for i, raw := range strings.Split(string(data), "\n") {
 		// The directive is a word and its arguments, separated by any run of

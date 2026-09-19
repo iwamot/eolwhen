@@ -207,3 +207,19 @@ func TestExtractCodename(t *testing.T) {
 		})
 	}
 }
+
+// TestGoModReadsTheDirectiveAndNotTheToolchain: a go.mod may carry both, and
+// only the go directive is a declaration this tool reads. The two are not a
+// contradiction to resolve either — the directive is the floor the module
+// supports and the toolchain names what to build with — so nothing here
+// reconciles them.
+func TestGoModReadsTheDirectiveAndNotTheToolchain(t *testing.T) {
+	ds, us := Extract("go.mod", []byte("module example.com/x\n\ngo 1.16\n\ntoolchain go1.25.1\n"))
+	if len(us) != 0 {
+		t.Fatalf("unreadable = %+v; want none", us)
+	}
+	want := []decl.Decl{{Product: "go", Version: "1.16", Source: decl.Source{File: "go.mod", Line: 3}}}
+	if len(ds) != len(want) || ds[0] != want[0] {
+		t.Fatalf("declarations = %+v; want %+v", ds, want)
+	}
+}

@@ -143,7 +143,13 @@ func TestExitCode(t *testing.T) {
 }
 
 func TestNotes(t *testing.T) {
-	f := timeline.Finding{Product: "python", Cycle: "2.7", EOL: at("2020-01-01")}
+	f := timeline.Finding{
+		Product: "python", Cycle: "2.7", Version: "2.7.18",
+		Matched: timeline.ByName, Dated: timeline.DatedByCycle,
+		Page: "https://endoflife.date/python",
+		EOL:  at("2020-01-01"), Source: at2(".python-version", 1),
+	}
+	evidenceOfF := ".python-version:1: 2.7.18 is python 2.7, matched by name; the date is that cycle's own — https://endoflife.date/python"
 	ahead := timeline.Finding{Product: "nodejs", Cycle: "24", EOL: at("2028-04-30")}
 	u := decl.Unreadable{Source: decl.Source{File: ".nvmrc", Line: 1}, Text: "lts/hydrogen", Reason: "names a moving target, not a version"}
 	undated := timeline.Undated{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}
@@ -211,7 +217,7 @@ func TestNotes(t *testing.T) {
 		// policy, so it is only worth a line when asked for.
 		{"untracked stays quiet", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{}, nil, nil},
 		{"untracked when asked for", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{verbose: true}, nil,
-			[]string{"mise.toml:5: biome 2.5.13 is not tracked by endoflife.date"}},
+			[]string{"mise.toml:5: biome 2.5.13 is not tracked by endoflife.date", evidenceOfF}},
 		// A dated declaration alongside an undated one is the whole answer,
 		// so the undated one says nothing.
 		{"undated stays quiet beside a row", resolve.Result{Findings: []timeline.Finding{f}, Undated: []timeline.Undated{undated}}, []timeline.Finding{f}, cliArgs{}, nil, nil},
@@ -221,7 +227,7 @@ func TestNotes(t *testing.T) {
 		// only when there is no answer for it to be short of.
 		{"a skipped file stays quiet beside a row", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{}, skipped, nil},
 		{"and is named when asked", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{verbose: true}, skipped,
-			[]string{"compose.yml: not YAML, so nothing in it was read"}},
+			[]string{"compose.yml: not YAML, so nothing in it was read", evidenceOfF}},
 		{"and is counted when there is no row", resolve.Result{}, nil, cliArgs{}, skipped,
 			[]string{
 				"nothing declared in dir is tracked by endoflife.date",
@@ -865,5 +871,74 @@ func TestRunSaysNothingWasSetAsideWhenNothingWas(t *testing.T) {
 	}
 	if !strings.Contains(so, `"skipped": []`) {
 		t.Errorf("stdout = %q; want an empty skipped list", so)
+	}
+}
+
+// TestReportExplainsHowARowWasReached: a row is the same three columns
+// however it was arrived at, so the table stays as it was and --verbose is
+// where the difference is said. The day carried over from the oldest cycle
+// endoflife.date tracks is the one that most needs saying, printing like a
+// published date without being one.
+func TestReportExplainsHowARowWasReached(t *testing.T) {
+	c, err := catalog.Decode([]byte(`{"result":[
+	  {"name":"redis","aliases":[],"links":{"html":"https://endoflife.date/redis"},
+	   "releases":[{"name":"7.2","eolFrom":"2026-01-01"}]},
+	  {"name":"nodejs","aliases":["node"],"links":{"html":"https://endoflife.date/nodejs"},
+	   "releases":[{"name":"22","eolFrom":"2027-04-30"}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	ds := []decl.Decl{
+		{Product: "redis", Version: "3.2", Source: at2("compose.yml", 9)},
+		{Product: "node", Version: "22.11.0", Source: at2(".nvmrc", 1)},
+	}
+
+	// The rows and the exit code are what they were before any of this was
+	// carried, and the default run says nothing extra.
+	var so, se bytes.Buffer
+	if code := report(cliArgs{dir: "."}, c, ds, nil, nil, now, &so, &se); code != exitPast {
+		t.Errorf("code = %d; want %d", code, exitPast)
+	}
+	want := "-258d  2026-01-01  redis <7.2  compose.yml:9\n" +
+		"+226d  2027-04-30  nodejs 22   .nvmrc:1\n"
+	if so.String() != want {
+		t.Errorf("stdout =\n%q\nwant\n%q", so.String(), want)
+	}
+	if se.String() != "" {
+		t.Errorf("stderr = %q; want the rows to stay as they were", se.String())
+	}
+
+	// Asked for detail, each row says what it was worked out from, in the
+	// order the rows are printed in.
+	so.Reset()
+	se.Reset()
+	report(cliArgs{dir: ".", verbose: true}, c, ds, nil, nil, now, &so, &se)
+	wantErr := "eolwhen: compose.yml:9: 3.2 is redis <7.2, matched by name; " +
+		"no cycle covers it, so the date is the day 7.2 ended, which support for anything older had run out by" +
+		" — https://endoflife.date/redis\n" +
+		"eolwhen: .nvmrc:1: 22.11.0 is nodejs 22, matched by an alias endoflife.date lists; " +
+		"the date is that cycle's own — https://endoflife.date/nodejs\n"
+	if se.String() != wantErr {
+		t.Errorf("stderr =\n%q\nwant\n%q", se.String(), wantErr)
+	}
+
+	// In the document the same difference is a field rather than a
+	// sentence, so a caller never has to read the prose to find it — and
+	// never has to read the cycle name either, which is the reason the
+	// field is there rather than the < the table shows: Go writes that
+	// character escaped, so a caller looking for one in the document finds
+	// \u003c or nothing at all.
+	so.Reset()
+	se.Reset()
+	report(cliArgs{dir: ".", asJSON: true}, c, ds, nil, nil, now, &so, &se)
+	for _, w := range []string{
+		`"version": "3.2"`, `"cycle": "\u003c7.2"`, `"dated": "predates"`, `"matched": "name"`,
+		`"link": "https://endoflife.date/redis"`,
+		`"version": "22.11.0"`, `"dated": "cycle"`, `"matched": "alias"`,
+	} {
+		if !strings.Contains(so.String(), w) {
+			t.Errorf("stdout is missing %s:\n%s", w, so.String())
+		}
 	}
 }

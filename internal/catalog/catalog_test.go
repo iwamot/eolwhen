@@ -355,3 +355,30 @@ func TestByPackage(t *testing.T) {
 		}
 	}
 }
+
+// A product's page is read from the catalog rather than built out of its
+// name, which would be a guess about somebody else's routing. A product
+// published without one carries none: an address that answers with a 404 is
+// worse than saying nothing.
+func TestPage(t *testing.T) {
+	c, err := Decode([]byte(`{"result":[
+	  {"name":"python","aliases":[],"links":{"html":"https://endoflife.date/python"},
+	   "releases":[{"name":"3.13","eolFrom":"2029-10-31"}]},
+	  {"name":"quiet","aliases":[],"releases":[{"name":"1.0","eolFrom":"2029-10-31"}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	for _, tt := range []struct{ name, want string }{
+		{"python", "https://endoflife.date/python"},
+		{"quiet", ""},
+	} {
+		p, ok := c.Lookup(tt.name)
+		if !ok {
+			t.Fatalf("Lookup(%q) found nothing", tt.name)
+		}
+		if got := p.Page(); got != tt.want {
+			t.Errorf("Page(%q) = %q; want %q", tt.name, got, tt.want)
+		}
+	}
+}

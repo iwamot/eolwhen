@@ -77,8 +77,23 @@ type Product struct {
 	Label       string       `json:"label"`
 	Aliases     []string     `json:"aliases"`
 	Identifiers []Identifier `json:"identifiers"`
+	Links       Links        `json:"links"`
 	Releases    []Release    `json:"releases"`
 }
+
+// Links are the pages upstream publishes for a product. Only the one that
+// leads back to endoflife.date's own page is read: it is where the dates
+// this tool reports can be checked against the table they came from, and
+// reading it beats building the address out of the name, which would be a
+// guess about somebody else's routing.
+type Links struct {
+	HTML string `json:"html"`
+}
+
+// Page is where to go and check what this tool said about a product. It is
+// empty when upstream published no page, which is nothing to stand in for:
+// a guessed address that answers with a 404 is worse than none.
+func (p Product) Page() string { return p.Links.HTML }
 
 // pkg is a name this product is published under somewhere else: the
 // ecosystem a purl names, and the name within it. pkg:gem/rails says the

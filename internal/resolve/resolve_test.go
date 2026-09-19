@@ -7,6 +7,7 @@ import (
 	"github.com/iwamot/eolwhen/internal/catalog"
 	"github.com/iwamot/eolwhen/internal/decl"
 	"github.com/iwamot/eolwhen/internal/span"
+	"github.com/iwamot/eolwhen/internal/timeline"
 )
 
 const doc = `{"result":[
@@ -586,5 +587,93 @@ func TestAllDoesNotPlaceAFloorlessRangeBelowEveryCycle(t *testing.T) {
 	}
 	if len(r.Moving) != 1 {
 		t.Fatalf("Moving = %+v; want 1", r.Moving)
+	}
+}
+
+// TestAllCarriesTheEvidenceForARow: a row is a claim about somebody else's
+// software, and what it was worked out from travels with it. The five ways a
+// name is answered are not equally close to the declaration — a file that
+// names python says which software it means, while a Gemfile naming rails
+// means Ruby on Rails only because upstream publishes pkg:gem/rails — and a
+// day carried over from the oldest tracked cycle is not a day anyone
+// published for the version that was declared.
+//
+// That each of these reaches the right cycle is settled by the tests above;
+// what is checked here is only what the row says about how it got there.
+func TestAllCarriesTheEvidenceForARow(t *testing.T) {
+	c, err := catalog.Decode([]byte(`{"result":[
+	  {"name":"python","aliases":[],"links":{"html":"https://endoflife.date/python"},
+	   "releases":[{"name":"3.10","eolFrom":"2026-10-04"}]},
+	  {"name":"nodejs","aliases":["node"],"links":{"html":"https://endoflife.date/nodejs"},
+	   "releases":[{"name":"14","eolFrom":"2023-04-30"}]},
+	  {"name":"rails","aliases":[],"identifiers":[{"type":"purl","id":"pkg:gem/rails"}],
+	   "links":{"html":"https://endoflife.date/rails"},
+	   "releases":[{"name":"6.1","eolFrom":"2024-10-01"}]},
+	  {"name":"opensearch","aliases":[],
+	   "identifiers":[{"type":"purl","id":"pkg:docker/opensearchproject/opensearch"}],
+	   "links":{"html":"https://endoflife.date/opensearch"},
+	   "releases":[{"name":"1.3","eolFrom":"2023-03-17"}]},
+	  {"name":"debian","aliases":[],"links":{"html":"https://endoflife.date/debian"},
+	   "releases":[{"name":"10","codename":"Buster","eolFrom":"2024-06-30"}]},
+	  {"name":"redis","aliases":[],"links":{"html":"https://endoflife.date/redis"},
+	   "releases":[{"name":"7.2","eolFrom":"2026-01-01"}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	r := All(c, []decl.Decl{
+		{Product: "python", Version: "3.10.2", Source: src("a")},
+		{Product: "node", Version: "14.21.3", Source: src("b")},
+		{Ecosystem: "gem", Product: "rails", Version: "~> 6.1.0",
+			Allows: span.Span{From: "6.1.0", Below: "6.2"}, Source: src("c")},
+		{Product: "opensearchproject/opensearch", Version: "1.3.0", Source: src("d")},
+		{Version: "buster", Source: src("e")},
+		{Product: "redis", Version: "3.2", Source: src("f")},
+	}, nil)
+	if len(r.Unreadable) != 0 || len(r.Untracked) != 0 {
+		t.Fatalf("All = %+v; want every line placed", r)
+	}
+	want := []timeline.Finding{
+		{Product: "python", Cycle: "3.10", Version: "3.10.2", Matched: timeline.ByName,
+			Dated: timeline.DatedByCycle, Page: "https://endoflife.date/python"},
+		// The file wrote node and the row names nodejs, which is upstream's
+		// word for it and not this file's.
+		{Product: "nodejs", Cycle: "14", Version: "14.21.3", Matched: timeline.ByAlias,
+			Dated: timeline.DatedByCycle, Page: "https://endoflife.date/nodejs"},
+		// The version is the range as written, the cycle being the one the
+		// whole of it sits inside.
+		{Product: "rails", Cycle: "6.1", Version: "~> 6.1.0", Matched: timeline.ByPackage,
+			Dated: timeline.DatedByCycle, Page: "https://endoflife.date/rails"},
+		{Product: "opensearch", Cycle: "1.3", Version: "1.3.0", Matched: timeline.ByImage,
+			Dated: timeline.DatedByCycle, Page: "https://endoflife.date/opensearch"},
+		// A word that names the software as well as the version.
+		{Product: "debian", Cycle: "10", Version: "buster", Matched: timeline.ByCodename,
+			Dated: timeline.DatedByCycle, Page: "https://endoflife.date/debian"},
+		// The one row whose day nobody published for the version declared.
+		{Product: "redis", Cycle: "<7.2", Version: "3.2", Matched: timeline.ByName,
+			Dated: timeline.DatedByPredating, Page: "https://endoflife.date/redis"},
+	}
+	if len(r.Findings) != len(want) {
+		t.Fatalf("Findings = %+v; want %d", r.Findings, len(want))
+	}
+	for i, w := range want {
+		got := r.Findings[i]
+		if got.Product != w.Product || got.Cycle != w.Cycle || got.Version != w.Version {
+			t.Errorf("[%d] = %s %s %q; want %s %s %q",
+				i, got.Product, got.Cycle, got.Version, w.Product, w.Cycle, w.Version)
+		}
+		if got.Matched != w.Matched || got.Dated != w.Dated || got.Page != w.Page {
+			t.Errorf("[%d] %s %s: matched/dated/page = %q/%q/%q; want %q/%q/%q",
+				i, got.Product, got.Cycle, got.Matched, got.Dated, got.Page, w.Matched, w.Dated, w.Page)
+		}
+	}
+}
+
+// A product upstream published no page for carries none: a guessed address
+// that answers with a 404 is worse than saying nothing.
+func TestAllCarriesNoPageWhenUpstreamPublishedNone(t *testing.T) {
+	r := All(load(t), []decl.Decl{{Product: "python", Version: "2.7.18", Source: src("a")}}, nil)
+	if len(r.Findings) != 1 || r.Findings[0].Page != "" {
+		t.Fatalf("Findings = %+v; want the one row with no page", r.Findings)
 	}
 }
