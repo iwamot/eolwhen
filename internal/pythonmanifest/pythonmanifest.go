@@ -22,6 +22,7 @@
 package pythonmanifest
 
 import (
+	"errors"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -82,16 +83,28 @@ func Matches(path string) bool {
 		filepath.Base(filepath.Dir(path)) == "requirements"
 }
 
-// Extract reads one manifest.
-func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+// Extract reads one manifest. A requirements.txt is read line by line and
+// has no parse to fail; a pyproject.toml is TOML and may not be TOML yet.
+func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
 	if filepath.Base(path) == "pyproject.toml" {
 		// A pyproject.toml may declare its dependencies either way, and a
-		// project moving from one to the other has both for a while.
-		ds, us := read(path, pyproject(data))
-		poetryDs, poetryUs := readPoetry(path, data)
-		return append(ds, poetryDs...), append(us, poetryUs...)
+		// project moving from one to the other has both for a while. Each
+		// way is read against a struct of its own, so each has a mismatch
+		// of its own to meet, and either one sets the whole file aside:
+		// half a file is not half a set of declarations.
+		entries, skipped := pyproject(data)
+		if skipped != "" {
+			return nil, nil, skipped
+		}
+		poetryDs, poetryUs, skipped := readPoetry(path, data)
+		if skipped != "" {
+			return nil, nil, skipped
+		}
+		ds, us := read(path, entries)
+		return append(ds, poetryDs...), append(us, poetryUs...), ""
 	}
-	return read(path, requirementsTxt(data))
+	ds, us := read(path, requirementsTxt(data))
+	return ds, us, ""
 }
 
 // entry is one requirement the file wrote, and the line it sits on.
@@ -186,12 +199,12 @@ type tables struct {
 // the TOML reader having no line numbers in it. A requirement that cannot be
 // located keeps the file without a line, which is the worst the scan can do;
 // it never changes what was read.
-func pyproject(data []byte) []entry {
+func pyproject(data []byte) ([]entry, string) {
 	var doc tables
 	if _, err := toml.Decode(string(data), &doc); err != nil {
 		// The tool that owns the file reports a broken one better than this
 		// one can, and half a file is not half a set of declarations.
-		return nil
+		return nil, tomlReason(err)
 	}
 	lines := strings.Split(string(data), "\n")
 	from := map[string]int{}
@@ -211,7 +224,7 @@ func pyproject(data []byte) []entry {
 			out = append(out, entry{text: text, line: lineOf(lines, text, from)})
 		}
 	}
-	return out
+	return out, ""
 }
 
 // lists gathers the requirement lists: what the project needs, then what its
@@ -244,4 +257,15 @@ func lineOf(lines []string, text string, from map[string]int) int {
 		}
 	}
 	return 0
+}
+
+// tomlReason tells a file that is not TOML from one that is TOML and does
+// not hold what it is read for. The decoder answers the first with a parse
+// error and the second with a mismatch against the struct it was handed, and
+// the two are different things for a reader to go and see.
+func tomlReason(err error) string {
+	if _, ok := errors.AsType[toml.ParseError](err); ok {
+		return decl.NotTOML
+	}
+	return decl.Shape
 }

@@ -45,13 +45,19 @@ func Matches(name string) bool {
 
 // Extract reads every target framework a project file declares.
 //
-// A file that does not parse is skipped in silence, as a composer.json that
-// is not JSON yet is: the tool that owns it reports that better than this
-// one can, and a file mid-edit is not a declaration that could not be read.
-func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+// A file that does not parse is read as nothing at all, and whole: half a
+// file is not half a set of declarations, and the tool that owns it reports
+// a broken one better than this one can. It earns no complaint, a file
+// mid-edit not being a declaration that could not be read, and comes back as
+// the reason it was set aside, which --verbose and --json account for.
+func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	props, skipped := properties(data)
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	var ds []decl.Decl
 	var us []decl.Unreadable
-	for _, p := range properties(data) {
+	for _, p := range props {
 		src := decl.Source{File: file, Line: p.line}
 		// TargetFrameworks holds several at once, semicolon-separated,
 		// which is how one project builds for more than one runtime. Each
@@ -69,7 +75,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			ds = append(ds, decl.Decl{Product: product, Version: version, Source: src})
 		}
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // legacy is the property an older project used to say the same thing, its
@@ -205,11 +211,10 @@ type property struct {
 // what keeps the same name apart from the metadata of a project reference,
 // where it says which build of another project to use rather than what this
 // one targets.
-func properties(data []byte) []property {
+func properties(data []byte) (out []property, skipped string) {
 	// A file Visual Studio wrote may start with a byte order mark, which is
 	// not markup and leaves the decoder with nothing it can read.
 	dec := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))))
-	var out []property
 	var stack []string
 	for {
 		t, err := dec.Token()
@@ -218,9 +223,9 @@ func properties(data []byte) []property {
 			// half-read file is not half a set of declarations, so what was
 			// gathered so far is kept only when the document ended.
 			if errors.Is(err, io.EOF) {
-				return out
+				return out, ""
 			}
-			return nil
+			return nil, decl.NotXML
 		}
 		switch t := t.(type) {
 		case xml.StartElement:
@@ -238,7 +243,7 @@ func properties(data []byte) []property {
 			line := lineAt(data, dec.InputOffset())
 			value, ok := text(dec)
 			if !ok {
-				return nil
+				return nil, decl.NotXML
 			}
 			stack = stack[:len(stack)-1]
 			out = append(out, property{name: wanted[i], value: value, line: line})

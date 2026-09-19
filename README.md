@@ -97,13 +97,34 @@ eolwhen: nothing declared in ../a-repo-kept-up-to-date has an end-of-life date y
 
 `--verbose` names the declarations that had no date to place — software endoflife.date does not track, cycles it has not dated yet, and the lines that follow the newest release. They are quiet by default because a repository doing everything right would otherwise spend a line on every file it keeps up to date, which is noise on the run that has an answer.
 
+It also names the files that were recognized and read nothing from. A `compose.yml` that is not YAML yet, or a `package.json` whose `dependencies` is a list, is set aside whole — half a file is not half a set of declarations — and the tool that owns it says what is wrong with it better than this one can. That leaves a directory whose files all failed to parse looking exactly like one that declares nothing, so whenever there is no row the `eolwhen:` line counts them, and `--verbose` says which files and which of a closed set of reasons: `not JSON`, `not YAML`, `not TOML`, `not XML`, or `not the shape it is read for`. What a file held is never repeated back, a file mid-edit being able to hold anything at all:
+
+```
+$ eolwhen ../a-repo-mid-edit
+eolwhen: no version declarations in ../a-repo-mid-edit
+eolwhen: 1 file was recognized and read nothing from; --verbose names it
+
+$ eolwhen --verbose ../a-repo-mid-edit
+eolwhen: no version declarations in ../a-repo-mid-edit
+eolwhen: compose.yml: not YAML, so nothing in it was read
+```
+
+A file set aside says the answer may be short of what the directory declares; it says nothing about whether anything there is out of support. An `eolwhen` that printed no row and counted two unread files has found no expiry and has not looked everywhere either, which are two different things to do next.
+
 The exit code is the answer, so a check can be one line. This one fails the job when something has already expired, passes when only future dates were found, and fails when the run could not answer at all — a usage error or an unreachable endoflife.date:
 
 ```bash
 eolwhen || [ $? = 2 ]
 ```
 
-The same answer as JSON, with one entry per declaration rather than one per cycle, and `cycle` reading `<4.0` where the version predates everything endoflife.date tracks: the table folds them for reading, and a caller reading the document wants each place as its own record. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, and `moving`, `untracked` and `undated` are filled when `--verbose` asks for the declarations that had no date to place — lines that follow the newest release, software endoflife.date has no policy for, and cycles it has not dated yet.
+The exit code answers for the rows, so a job that also wants to know the rows were the whole story reads `skipped` beside it:
+
+```bash
+eolwhen --json > eol.json || [ $? = 2 ]
+jq -e '.skipped | length == 0' eol.json
+```
+
+The same answer as JSON, with one entry per declaration rather than one per cycle, and `cycle` reading `<4.0` where the version predates everything endoflife.date tracks: the table folds them for reading, and a caller reading the document wants each place as its own record. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, `ended` holds the cycles upstream calls out of support without publishing a day, `skipped` holds the files that were recognized and read nothing from, and `moving`, `untracked` and `undated` are filled when `--verbose` asks for the declarations that had no date to place — lines that follow the newest release, software endoflife.date has no policy for, and cycles it has not dated yet.
 
 ```
 $ eolwhen --json
@@ -130,7 +151,14 @@ $ eolwhen --json
   "hidden": 0,
   "moving": [],
   "untracked": [],
-  "undated": []
+  "undated": [],
+  "ended": [],
+  "skipped": [
+    {
+      "source": "compose.yml",
+      "reason": "not YAML"
+    }
+  ]
 }
 ```
 
@@ -141,7 +169,7 @@ To cover several directories, loop over them in the shell. `eolwhen` reads one.
 `eolwhen --instructions` prints the paragraph to drop into `CLAUDE.md`, `AGENTS.md`, or whichever file your agent reads:
 
 ```markdown
-To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.
+To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it. A recognized file that does not parse is read as nothing at all, whole rather than in part; when there is no row the `eolwhen:` line counts those files, `--verbose` names each one with a short reason and `--json` carries them in `skipped`, so an empty answer always says whether it is a complete one.
 ```
 
 ## Reference
@@ -178,7 +206,8 @@ Options:
   --json          print JSON instead of the table, one entry per declaration
   --verbose       also name the declarations that had no date to place:
                   software endoflife.date does not track, cycles it has not
-                  dated yet, and lines that follow the newest release
+                  dated yet, and lines that follow the newest release; and
+                  the files that were recognized and read nothing from
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file

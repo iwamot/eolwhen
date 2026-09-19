@@ -38,7 +38,7 @@ const manifest = `{
 }`
 
 func TestExtract(t *testing.T) {
-	ds, us := Extract("composer.json", []byte(manifest))
+	ds, us, _ := Extract("composer.json", []byte(manifest))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -73,7 +73,7 @@ func TestExtract(t *testing.T) {
 }
 
 func TestExtractLeavesTheVersionToTheLockfile(t *testing.T) {
-	ds, us := Extract("composer.json", []byte(`{"require": {"laravel/framework": "^7.4 || ^8.0"}}`))
+	ds, us, _ := Extract("composer.json", []byte(`{"require": {"laravel/framework": "^7.4 || ^8.0"}}`))
 	if len(ds) != 0 {
 		t.Fatalf("declarations = %+v; want none", ds)
 	}
@@ -95,7 +95,7 @@ func TestExtractLeavesTheVersionToTheLockfile(t *testing.T) {
 // The one requirement that is not a package is not the lockfile's to settle
 // either: which PHP a project runs on is whatever the machine has.
 func TestExtractSaysWhoSettlesTheRuntime(t *testing.T) {
-	_, us := Extract("composer.json", []byte(`{"require": {"php": ">=7.4"}}`))
+	_, us, _ := Extract("composer.json", []byte(`{"require": {"php": ">=7.4"}}`))
 	if len(us) != 1 || us[0].Product != "php" || us[0].Ecosystem != "" {
 		t.Fatalf("unreadable = %+v; want the php line", us)
 	}
@@ -107,7 +107,7 @@ func TestExtractSaysWhoSettlesTheRuntime(t *testing.T) {
 func TestExtractPassesOverWhatIsNotAPackage(t *testing.T) {
 	for _, name := range []string{"ext-json", "lib-openssl", "composer-runtime-api", "composer-plugin-api", "hhvm", "php-64bit"} {
 		t.Run(name, func(t *testing.T) {
-			ds, us := Extract("composer.json", []byte(`{"require": {"`+name+`": "^1.0"}}`))
+			ds, us, _ := Extract("composer.json", []byte(`{"require": {"`+name+`": "^1.0"}}`))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v %+v; want neither", ds, us)
 			}
@@ -121,7 +121,7 @@ func TestExtractPassesOverWhatIsNotAPackage(t *testing.T) {
 func TestExtractReadsAVendorNamedLikeAReservedOne(t *testing.T) {
 	for _, name := range []string{"composer/semver", "php-http/client-common", "ext-lib/thing"} {
 		t.Run(name, func(t *testing.T) {
-			ds, _ := Extract("composer.json", []byte(`{"require": {"`+name+`": "^1.0"}}`))
+			ds, _, _ := Extract("composer.json", []byte(`{"require": {"`+name+`": "^1.0"}}`))
 			if len(ds) != 1 || ds[0].Product != name || ds[0].Ecosystem != Ecosystem {
 				t.Errorf("= %+v; want the package %q", ds, name)
 			}
@@ -152,9 +152,28 @@ func TestExtractSkipsWhatItCannotRead(t *testing.T) {
 		{"cut short before require closes", `{"require": {"laravel/framework": "^8.0"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("composer.json", []byte(tt.body))
+			ds, us, _ := Extract("composer.json", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v %+v; want neither", ds, us)
+			}
+		})
+	}
+}
+
+// The same three answers a package.json has.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"not json", `{"require": {`, decl.NotJSON},
+		{"require is a list", `{"require": ["php"]}`, decl.Shape},
+		{"declares nothing", `{"name": "acme/demo"}`, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract("composer.json", []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
 		})
 	}

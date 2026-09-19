@@ -38,11 +38,16 @@ const inherited = "names no version here, so the POM it inherits from decides"
 
 // Extract reads the parent and every dependency a POM declares.
 //
-// A file that does not parse is skipped in silence, as a composer.json that
-// is not JSON yet is: the tool that owns it reports that better than this
-// one can, and a file mid-edit is not a declaration that could not be read.
-func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
-	coords, props := parse(data)
+// A file that does not parse is read as nothing at all, and whole: half a
+// file is not half a set of declarations, and the tool that owns it reports
+// a broken one better than this one can. It earns no complaint, a file
+// mid-edit not being a declaration that could not be read, and comes back as
+// the reason it was set aside, which --verbose and --json account for.
+func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	coords, props, skipped := parse(data)
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	var ds []decl.Decl
 	var us []decl.Unreadable
 	for _, c := range coords {
@@ -68,7 +73,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 		}
 		ds = append(ds, decl.Decl{Ecosystem: Ecosystem, Product: name, Version: v, Source: src})
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // resolve reads the version a dependency asks for, standing a property in
@@ -129,7 +134,7 @@ type coord struct {
 // parse walks the document, gathering the artifacts it names and the
 // properties it sets. Both are needed before either can be read, a property
 // being allowed to sit after the dependency that uses it.
-func parse(data []byte) ([]coord, map[string]string) {
+func parse(data []byte) ([]coord, map[string]string, string) {
 	dec := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))))
 	var path []string
 	var coords []coord
@@ -138,9 +143,9 @@ func parse(data []byte) ([]coord, map[string]string) {
 		t, err := dec.Token()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return coords, props
+				return coords, props, ""
 			}
-			return nil, nil
+			return nil, nil, decl.NotXML
 		}
 		switch t := t.(type) {
 		case xml.StartElement:
@@ -149,14 +154,14 @@ func parse(data []byte) ([]coord, map[string]string) {
 			case names(path):
 				c, ok := artifact(dec, data)
 				if !ok {
-					return nil, nil
+					return nil, nil, decl.NotXML
 				}
 				coords = append(coords, c)
 				path = path[:len(path)-1]
 			case sets(path):
 				v, ok := text(dec)
 				if !ok {
-					return nil, nil
+					return nil, nil, decl.NotXML
 				}
 				props[t.Name.Local] = v
 				path = path[:len(path)-1]

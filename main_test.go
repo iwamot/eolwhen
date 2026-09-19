@@ -149,28 +149,30 @@ func TestNotes(t *testing.T) {
 	undated := timeline.Undated{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}
 	ended := timeline.Undated{Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 4}}
 	m := decl.Unreadable{Source: decl.Source{File: ".github/workflows/ci.yml", Line: 3}, Text: "ubuntu-latest", Reason: "follows the newest release", Moving: true}
+	skipped := []decl.Skipped{{File: "compose.yml", Reason: decl.NotYAML}}
 
 	tests := []struct {
 		name  string
 		r     resolve.Result
 		shown []timeline.Finding
 		a     cliArgs
+		sk    []decl.Skipped
 		want  []string
 	}{
-		{"everything named software with no policy", resolve.Result{}, nil, cliArgs{},
+		{"everything named software with no policy", resolve.Result{}, nil, cliArgs{}, nil,
 			[]string{"nothing declared in dir is tracked by endoflife.date"}},
 		// Nothing is wrong with the directory and nothing is owed, so the
 		// one line says so rather than complaining once per declaration.
-		{"nothing has a date yet", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{},
+		{"nothing has a date yet", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{}, nil,
 			[]string{"nothing declared in dir has an end-of-life date yet"}},
-		{"and is accounted for when asked", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true},
+		{"and is accounted for when asked", resolve.Result{Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true}, nil,
 			[]string{"go.mod:9: go 1.26 has no end-of-life date yet", "nothing declared in dir has an end-of-life date yet"}},
 		// A cycle upstream calls over without dating it has no row either,
 		// and the line says the opposite of the one above: there is
 		// something to do and no day to put it on. It is said whether or
 		// not the reader asked for detail, that being the question they ran
 		// the tool with.
-		{"something is out of support with no date", resolve.Result{Ended: []timeline.Undated{ended}}, nil, cliArgs{},
+		{"something is out of support with no date", resolve.Result{Ended: []timeline.Undated{ended}}, nil, cliArgs{}, nil,
 			[]string{
 				"compose.yml:4: metabase 0.46 is out of support, with no date published",
 				"nothing declared in dir has a date to put on the timeline",
@@ -178,14 +180,14 @@ func TestNotes(t *testing.T) {
 		// The same cycle declared in several places is one thing to know,
 		// folded the way a repeated complaint is.
 		{"the same ended cycle from several places",
-			resolve.Result{Ended: []timeline.Undated{ended, {Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 9}}}}, nil, cliArgs{},
+			resolve.Result{Ended: []timeline.Undated{ended, {Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 9}}}}, nil, cliArgs{}, nil,
 			[]string{
 				"compose.yml:4: metabase 0.46 is out of support, with no date published (and 1 more)",
 				"nothing declared in dir has a date to put on the timeline",
 			}},
 		// What --verbose adds is the lines that ask for nothing; the ended
 		// cycle above them was printed without being asked for.
-		{"which lines those were, when asked", resolve.Result{Ended: []timeline.Undated{ended}, Moving: []decl.Unreadable{m}, Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true},
+		{"which lines those were, when asked", resolve.Result{Ended: []timeline.Undated{ended}, Moving: []decl.Unreadable{m}, Undated: []timeline.Undated{undated}}, nil, cliArgs{verbose: true}, nil,
 			[]string{
 				"compose.yml:4: metabase 0.46 is out of support, with no date published",
 				".github/workflows/ci.yml:3: ubuntu-latest follows the newest release",
@@ -194,29 +196,63 @@ func TestNotes(t *testing.T) {
 			}},
 		// A line that could not be read leaves the answer short of what the
 		// directory declares, which outranks anything that had no date.
-		{"everything was unreadable", resolve.Result{Unreadable: []decl.Unreadable{u}, Undated: []timeline.Undated{undated}}, nil, cliArgs{},
+		{"everything was unreadable", resolve.Result{Unreadable: []decl.Unreadable{u}, Undated: []timeline.Undated{undated}}, nil, cliArgs{}, nil,
 			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version", "nothing in dir could be placed on the timeline"}},
-		{"the same complaint from several places", resolve.Result{Unreadable: []decl.Unreadable{u, {Source: decl.Source{File: "b", Line: 2}, Text: u.Text, Reason: u.Reason}}}, nil, cliArgs{},
+		{"the same complaint from several places", resolve.Result{Unreadable: []decl.Unreadable{u, {Source: decl.Source{File: "b", Line: 2}, Text: u.Text, Reason: u.Reason}}}, nil, cliArgs{}, nil,
 			[]string{".nvmrc:1: lts/hydrogen names a moving target, not a version (and 1 more)", "nothing in dir could be placed on the timeline"}},
 		{"a window hid some", resolve.Result{Findings: []timeline.Finding{f, ahead}}, []timeline.Finding{f},
-			cliArgs{withinSet: true, withinText: "90d"},
+			cliArgs{withinSet: true, withinText: "90d"}, nil,
 			[]string{"1 more declaration expires further out than 90d; drop --within to see it"}},
 		{"a window hid several", resolve.Result{Findings: []timeline.Finding{f, ahead, ahead}}, []timeline.Finding{f},
-			cliArgs{withinSet: true, withinText: "90d"},
+			cliArgs{withinSet: true, withinText: "90d"}, nil,
 			[]string{"2 more declarations expire further out than 90d; drop --within to see them"}},
-		{"nothing owed", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{}, nil},
+		{"nothing owed", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{}, nil, nil},
 		// What a tool list holds is mostly software with no end-of-life
 		// policy, so it is only worth a line when asked for.
-		{"untracked stays quiet", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{}, nil},
-		{"untracked when asked for", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{verbose: true},
+		{"untracked stays quiet", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{}, nil, nil},
+		{"untracked when asked for", resolve.Result{Findings: []timeline.Finding{f}, Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}}}, []timeline.Finding{f}, cliArgs{verbose: true}, nil,
 			[]string{"mise.toml:5: biome 2.5.13 is not tracked by endoflife.date"}},
 		// A dated declaration alongside an undated one is the whole answer,
 		// so the undated one says nothing.
-		{"undated stays quiet beside a row", resolve.Result{Findings: []timeline.Finding{f}, Undated: []timeline.Undated{undated}}, []timeline.Finding{f}, cliArgs{}, nil},
+		{"undated stays quiet beside a row", resolve.Result{Findings: []timeline.Finding{f}, Undated: []timeline.Undated{undated}}, []timeline.Finding{f}, cliArgs{}, nil, nil},
+		// A file nobody could parse earns no complaint: nothing is wrong
+		// with a file mid-edit. What it costs is that the answer may be
+		// short of what the directory declares, and that is worth a line
+		// only when there is no answer for it to be short of.
+		{"a skipped file stays quiet beside a row", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{}, skipped, nil},
+		{"and is named when asked", resolve.Result{Findings: []timeline.Finding{f}}, []timeline.Finding{f}, cliArgs{verbose: true}, skipped,
+			[]string{"compose.yml: not YAML, so nothing in it was read"}},
+		{"and is counted when there is no row", resolve.Result{}, nil, cliArgs{}, skipped,
+			[]string{
+				"nothing declared in dir is tracked by endoflife.date",
+				"1 file was recognized and read nothing from; --verbose names it",
+			}},
+		{"several are counted together", resolve.Result{}, nil, cliArgs{},
+			[]decl.Skipped{skipped[0], {File: "package.json", Reason: decl.NotJSON}},
+			[]string{
+				"nothing declared in dir is tracked by endoflife.date",
+				"2 files were recognized and read nothing from; --verbose names them",
+			}},
+		// Naming them is what --verbose is, so the count is not said twice.
+		{"named rather than counted when asked", resolve.Result{}, nil, cliArgs{verbose: true}, skipped,
+			[]string{
+				"compose.yml: not YAML, so nothing in it was read",
+				"nothing declared in dir is tracked by endoflife.date",
+			}},
+		// A line with no date to place is not a file that could not be
+		// read, and neither is a line following the newest release.
+		{"quiet lines are not skipped files",
+			resolve.Result{Moving: []decl.Unreadable{m}, Untracked: []decl.Decl{{Product: "biome", Source: decl.Source{File: "mise.toml", Line: 5}}}}, nil, cliArgs{}, nil,
+			[]string{"everything declared in dir follows the newest release, so there is no date to place"}},
+		// A window hid the rows rather than there being none, so the answer
+		// is whole and the line about it is the window's.
+		{"a window is not a short answer", resolve.Result{Findings: []timeline.Finding{f, ahead}}, []timeline.Finding{f},
+			cliArgs{withinSet: true, withinText: "90d"}, skipped,
+			[]string{"1 more declaration expires further out than 90d; drop --within to see it"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := notes("dir", tt.r, tt.shown, tt.a)
+			got := notes("dir", tt.r, tt.shown, tt.sk, tt.a)
 			if len(got) != len(tt.want) {
 				t.Fatalf("notes = %q; want %q", got, tt.want)
 			}
@@ -345,6 +381,7 @@ func TestReport(t *testing.T) {
 		a        cliArgs
 		ds       []decl.Decl
 		us       []decl.Unreadable
+		sk       []decl.Skipped
 		wantOut  string
 		wantErr  []string
 		wantCode int
@@ -379,6 +416,23 @@ func TestReport(t *testing.T) {
 			us:       []decl.Unreadable{unread},
 			wantOut:  "-2450d  2020-01-01  python 2.7  .python-version:1\n",
 			wantErr:  []string{".node-version:1: lts/iron names a moving target"},
+			wantCode: exitPast,
+		},
+		{
+			name:     "a file nobody could parse leaves the rows beside it alone",
+			a:        cliArgs{dir: "."},
+			ds:       []decl.Decl{expired},
+			sk:       []decl.Skipped{{File: "compose.yml", Reason: decl.NotYAML}},
+			wantOut:  "-2450d  2020-01-01  python 2.7  .python-version:1\n",
+			wantCode: exitPast,
+		},
+		{
+			name:     "and is named beside them when asked",
+			a:        cliArgs{dir: ".", verbose: true},
+			ds:       []decl.Decl{expired},
+			sk:       []decl.Skipped{{File: "compose.yml", Reason: decl.NotYAML}},
+			wantOut:  "-2450d  2020-01-01  python 2.7  .python-version:1\n",
+			wantErr:  []string{"compose.yml: not YAML, so nothing in it was read"},
 			wantCode: exitPast,
 		},
 		{
@@ -428,7 +482,7 @@ func TestReport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var so, se bytes.Buffer
-			code := report(tt.a, testCatalog(t), tt.ds, tt.us, now, &so, &se)
+			code := report(tt.a, testCatalog(t), tt.ds, tt.us, tt.sk, now, &so, &se)
 			if code != tt.wantCode {
 				t.Errorf("code = %d; want %d", code, tt.wantCode)
 			}
@@ -453,7 +507,7 @@ func TestReport(t *testing.T) {
 func TestReportWithoutCatalog(t *testing.T) {
 	us := []decl.Unreadable{{Source: at2(".github/workflows/ci.yml", 5), Text: "ubuntu-latest", Reason: "names latest, not a version"}}
 	var so, se bytes.Buffer
-	code := report(cliArgs{dir: "."}, nil, nil, us, now, &so, &se)
+	code := report(cliArgs{dir: "."}, nil, nil, us, nil, now, &so, &se)
 	if code != exitNone || so.String() != "" {
 		t.Errorf("report = %q, %d; want no rows and exit %d", so.String(), code, exitNone)
 	}
@@ -525,7 +579,7 @@ func TestReportJSON(t *testing.T) {
 	var so, se bytes.Buffer
 	ds := []decl.Decl{{Product: "python", Version: "2.7.18", Source: at2(".python-version", 1)}}
 	us := []decl.Unreadable{{Source: at2(".nvmrc", 1), Text: "lts/iron", Reason: "names a moving target, not a version"}}
-	code := report(cliArgs{dir: "some/dir", asJSON: true}, testCatalog(t), ds, us, now, &so, &se)
+	code := report(cliArgs{dir: "some/dir", asJSON: true}, testCatalog(t), ds, us, nil, now, &so, &se)
 	if code != exitPast {
 		t.Errorf("code = %d; want %d", code, exitPast)
 	}
@@ -544,7 +598,7 @@ func TestReportJSON(t *testing.T) {
 	ds = append(ds,
 		decl.Decl{Product: "nodejs", Version: "26.0.1", Source: at2(".nvmrc", 1)},
 		decl.Decl{Product: "jq", Version: "1.8.1", Source: at2("mise.toml", 3)})
-	report(cliArgs{dir: "some/dir", asJSON: true, verbose: true}, testCatalog(t), ds, us, now, &so, &se)
+	report(cliArgs{dir: "some/dir", asJSON: true, verbose: true}, testCatalog(t), ds, us, nil, now, &so, &se)
 	for _, want := range []string{`"cycle": "26"`, `"source": "mise.toml:3"`} {
 		if !strings.Contains(so.String(), want) {
 			t.Errorf("stdout is missing %s:\n%s", want, so.String())
@@ -712,7 +766,7 @@ func TestRunCorpus(t *testing.T) {
 		"        with:\n"+
 		"          python-version: ${{ matrix.python-version }}\n")
 
-	ds, us, err := scan.Dir(dir)
+	ds, us, sk, err := scan.Dir(dir)
 	if err != nil {
 		t.Fatalf("scan.Dir: %v", err)
 	}
@@ -721,7 +775,7 @@ func TestRunCorpus(t *testing.T) {
 		t.Fatalf("Decode: %v", err)
 	}
 	var so, se bytes.Buffer
-	code := report(cliArgs{dir: dir}, c, ds, us, now, &so, &se)
+	code := report(cliArgs{dir: dir}, c, ds, us, sk, now, &so, &se)
 	want := "" +
 		"-1388d  2022-11-28  php 7.4                                    composer.json:3\n" +
 		"-1331d  2023-01-24  laravel 8                                  composer.json:5\n" +
@@ -747,5 +801,69 @@ func TestRunCorpus(t *testing.T) {
 	}
 	if code != exitPast {
 		t.Errorf("code = %d; want %d", code, exitPast)
+	}
+}
+
+// A directory whose recognized files all failed to parse reads exactly like
+// one that declares nothing, which is what this tells apart. Nothing here
+// has to be looked up, so the catalog is never asked for and the test does
+// not touch the network.
+func TestRunSetsAsideWhatItCannotParse(t *testing.T) {
+	dir := t.TempDir()
+	// A file mid-edit may hold anything at all, and what it holds is the
+	// one thing a diagnostic must not pass on.
+	body := "\tthis: is: not: yaml\n  POSTGRES_PASSWORD: hunter2\n  - [\n"
+	if err := os.WriteFile(filepath.Join(dir, "compose.yml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, quiet, code := runArgs(t, dir)
+	if code != exitNone {
+		t.Errorf("code = %d; want %d", code, exitNone)
+	}
+	for _, want := range []string{"no version declarations in", "1 file was recognized and read nothing from"} {
+		if !strings.Contains(quiet, want) {
+			t.Errorf("stderr = %q; want %q in it", quiet, want)
+		}
+	}
+	if strings.Contains(quiet, "compose.yml") {
+		t.Errorf("stderr = %q; want which file left to --verbose", quiet)
+	}
+
+	_, loud, _ := runArgs(t, "--verbose", dir)
+	if want := "compose.yml: not YAML, so nothing in it was read"; !strings.Contains(loud, want) {
+		t.Errorf("stderr = %q; want %q in it", loud, want)
+	}
+
+	// The words on stderr and the fields in the document say the same
+	// thing, which is what the document promises.
+	doc, _, _ := runArgs(t, "--json", dir)
+	for _, want := range []string{`"source": "compose.yml"`, `"reason": "not YAML"`} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("stdout = %q; want %q in it", doc, want)
+		}
+	}
+	for _, out := range []string{quiet, loud, doc} {
+		if strings.Contains(out, "hunter2") {
+			t.Errorf("output = %q; want nothing the file itself held", out)
+		}
+	}
+}
+
+// A directory that declares nothing and hid nothing says so and stops there.
+func TestRunSaysNothingWasSetAsideWhenNothingWas(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name": "demo"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	so, se, code := runArgs(t, "--json", dir)
+	if code != exitNone {
+		t.Errorf("code = %d; want %d", code, exitNone)
+	}
+	if strings.Contains(se, "read nothing from") {
+		t.Errorf("stderr = %q; want no count for a directory that hid nothing", se)
+	}
+	if !strings.Contains(so, `"skipped": []`) {
+		t.Errorf("stdout = %q; want an empty skipped list", so)
 	}
 }

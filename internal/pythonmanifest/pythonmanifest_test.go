@@ -42,7 +42,7 @@ type want struct {
 
 func check(t *testing.T, path, body string, ws ...want) {
 	t.Helper()
-	ds, _ := Extract(path, []byte(body))
+	ds, _, _ := Extract(path, []byte(body))
 	if len(ds) != len(ws) {
 		t.Fatalf("declarations = %+v; want %d", ds, len(ws))
 	}
@@ -115,7 +115,7 @@ func TestExtractReadsAPyproject(t *testing.T) {
 // Written open, as it almost always is, it names no cycle and is set aside.
 func TestExtractReadsRequiresPython(t *testing.T) {
 	t.Run("open, as it is usually written", func(t *testing.T) {
-		ds, us := Extract("pyproject.toml", []byte("[project]\nname = \"demo\"\nrequires-python = \">=3.9\"\n"))
+		ds, us, _ := Extract("pyproject.toml", []byte("[project]\nname = \"demo\"\nrequires-python = \">=3.9\"\n"))
 		want := decl.Unreadable{
 			Source: decl.Source{File: "pyproject.toml", Line: 3},
 			// No ecosystem: the interpreter is software the catalog knows
@@ -130,7 +130,7 @@ func TestExtractReadsRequiresPython(t *testing.T) {
 		}
 	})
 	t.Run("closed, where it names one cycle", func(t *testing.T) {
-		ds, _ := Extract("pyproject.toml", []byte("[project]\nrequires-python = \"==3.11.*\"\n"))
+		ds, _, _ := Extract("pyproject.toml", []byte("[project]\nrequires-python = \"==3.11.*\"\n"))
 		if len(ds) != 1 || ds[0].Ecosystem != "" || ds[0].Product != "python" || ds[0].Allows.From != "3.11" {
 			t.Errorf("= %+v; want python 3.11", ds)
 		}
@@ -141,7 +141,7 @@ func TestExtractReadsRequiresPython(t *testing.T) {
 // A caret is closed, so it reaches the extractor as a range; whether that
 // range sits inside one release cycle is settled where the catalog is.
 func TestExtractReadsPoetryPython(t *testing.T) {
-	ds, us := Extract("pyproject.toml", []byte("[tool.poetry.dependencies]\npython = \"^3.9\"\n"))
+	ds, us, _ := Extract("pyproject.toml", []byte("[tool.poetry.dependencies]\npython = \"^3.9\"\n"))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -151,7 +151,7 @@ func TestExtractReadsPoetryPython(t *testing.T) {
 }
 
 func TestExtractSetsAsideWhatNamesNoVersion(t *testing.T) {
-	ds, us := Extract("requirements.txt", []byte("requests>=2.0\nansible\n"))
+	ds, us, _ := Extract("requirements.txt", []byte("requests>=2.0\nansible\n"))
 	if len(ds) != 0 {
 		t.Fatalf("declarations = %+v; want none", ds)
 	}
@@ -183,7 +183,7 @@ func TestExtractReadsNothingElse(t *testing.T) {
 		{"an empty pyproject", "pyproject.toml", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(tt.path, []byte(tt.body))
+			ds, us, _ := Extract(tt.path, []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v, %+v; want neither", ds, us)
 			}
@@ -204,8 +204,37 @@ func TestExtractReadsOptionsBesideARequirement(t *testing.T) {
 func TestExtractKeepsARequirementItCannotPlace(t *testing.T) {
 	// TOML writes a multi-line string, so the requirement is on no line of
 	// the file as the reader sees it.
-	ds, _ := Extract("pyproject.toml", []byte("[project]\ndependencies = [\n    \"\"\"dja\\\nngo==4.2.0\"\"\",\n]\n"))
+	ds, _, _ := Extract("pyproject.toml", []byte("[project]\ndependencies = [\n    \"\"\"dja\\\nngo==4.2.0\"\"\",\n]\n"))
 	if len(ds) != 1 || ds[0].Product != "django" || ds[0].Source.Line != 0 {
 		t.Errorf("= %+v; want django with no line", ds)
+	}
+}
+
+// A pyproject.toml that is not TOML is set aside whole. A requirements.txt
+// is read a line at a time and has no document to fail.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, path, body, skipped string }{
+		{"not toml", "pyproject.toml", "[project\n", decl.NotTOML},
+		// TOML the decoder will not put into the struct it is read with:
+		// a file the reader has to go and fix, and not the same fix.
+		{"requires-python is a number", "pyproject.toml", "[project]\nrequires-python = 3\n", decl.Shape},
+		{"dependencies is not a list", "pyproject.toml", "[project]\ndependencies = \"django\"\n", decl.Shape},
+		// The Poetry tables are read against a struct of their own, so the
+		// file may suit one pass and not the other, and either sets it
+		// aside whole.
+		{"tool is not a table", "pyproject.toml", "tool = 3\n", decl.Shape},
+		{"declaring nothing", "pyproject.toml", "[project]\nname = \"demo\"\n", ""},
+		{"empty", "pyproject.toml", "", ""},
+		{"a requirements file holding nonsense", "requirements.txt", "[project\n", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract(tt.path, []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
+		})
 	}
 }

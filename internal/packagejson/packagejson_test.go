@@ -43,7 +43,7 @@ const manifest = `{
 }`
 
 func TestExtract(t *testing.T) {
-	ds, us := Extract("package.json", []byte(manifest))
+	ds, us, _ := Extract("package.json", []byte(manifest))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -82,7 +82,7 @@ func TestExtract(t *testing.T) {
 // for. npm has required a lower-case name for years, but the packages from
 // before it did are still there and still depended on.
 func TestExtractKeepsAName(t *testing.T) {
-	ds, _ := Extract("package.json", []byte(`{"dependencies": {"JSONStream": "1.3.5"}}`))
+	ds, _, _ := Extract("package.json", []byte(`{"dependencies": {"JSONStream": "1.3.5"}}`))
 	if len(ds) != 1 || ds[0].Product != "JSONStream" {
 		t.Errorf("= %+v; want the name as written", ds)
 	}
@@ -91,7 +91,7 @@ func TestExtractKeepsAName(t *testing.T) {
 // A requirement reaching no single cycle is not a line to go and look at:
 // the version it became is in the lockfile beside it.
 func TestExtractSetsAsideARequirementWithNoOneVersion(t *testing.T) {
-	ds, us := Extract("package.json", []byte(`{"dependencies": {"vue": ">=2.6"}}`))
+	ds, us, _ := Extract("package.json", []byte(`{"dependencies": {"vue": ">=2.6"}}`))
 	want := decl.Unreadable{
 		Source:    decl.Source{File: "package.json", Line: 1},
 		Ecosystem: Ecosystem,
@@ -115,7 +115,7 @@ func TestExtractReadsThePackageManager(t *testing.T) {
 		{"Bun@1.2.0", "Bun", "1.2.0"},
 	} {
 		t.Run(tt.value, func(t *testing.T) {
-			ds, us := Extract("package.json", []byte(`{"packageManager": "`+tt.value+`"}`))
+			ds, us, _ := Extract("package.json", []byte(`{"packageManager": "`+tt.value+`"}`))
 			if len(us) != 0 {
 				t.Fatalf("unreadable = %+v; want none", us)
 			}
@@ -132,7 +132,7 @@ func TestExtractReadsThePackageManager(t *testing.T) {
 func TestExtractReportsAPackageManagerThatIsNotOne(t *testing.T) {
 	for _, value := range []string{"pnpm", "pnpm@latest", "pnpm@^10", "@10.18.0", "pnpm@"} {
 		t.Run(value, func(t *testing.T) {
-			ds, us := Extract("package.json", []byte(`{"packageManager": "`+value+`"}`))
+			ds, us, _ := Extract("package.json", []byte(`{"packageManager": "`+value+`"}`))
 			want := decl.Unreadable{
 				Source: decl.Source{File: "package.json", Line: 1},
 				Text:   value,
@@ -155,7 +155,7 @@ func TestExtractReadsNothingElse(t *testing.T) {
 		{"an unnamed package", `{"dependencies": {"": "^1.0.0"}}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("package.json", []byte(tt.body))
+			ds, us, _ := Extract("package.json", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v %+v; want neither", ds, us)
 			}
@@ -167,7 +167,7 @@ func TestExtractReadsNothingElse(t *testing.T) {
 // than a package: the catalog answers it by name, so no purl is involved.
 func TestExtractReadsEngines(t *testing.T) {
 	t.Run("closed, where it names one cycle", func(t *testing.T) {
-		ds, us := Extract("package.json", []byte(`{"engines": {"node": "^18"}}`))
+		ds, us, _ := Extract("package.json", []byte(`{"engines": {"node": "^18"}}`))
 		if len(us) != 0 {
 			t.Fatalf("unreadable = %+v; want none", us)
 		}
@@ -178,7 +178,7 @@ func TestExtractReadsEngines(t *testing.T) {
 	// Which is not how one is usually written. A floor with no ceiling is
 	// the project saying what it will put up with, and names no cycle.
 	t.Run("open, as it is usually written", func(t *testing.T) {
-		ds, us := Extract("package.json", []byte("{\n  \"engines\": {\n    \"node\": \">=22\"\n  }\n}"))
+		ds, us, _ := Extract("package.json", []byte("{\n  \"engines\": {\n    \"node\": \">=22\"\n  }\n}"))
 		want := decl.Unreadable{
 			Source:  decl.Source{File: "package.json", Line: 3},
 			Product: "node",
@@ -190,4 +190,26 @@ func TestExtractReadsEngines(t *testing.T) {
 			t.Errorf("= %+v, %+v; want the one set-aside line", ds, us)
 		}
 	})
+}
+
+// A manifest that is not JSON, one that is JSON and is not a manifest, and
+// one that is a manifest and declares nothing are three answers and not one.
+// Only the first two are files whose declarations this run never saw.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"not json", `{"dependencies": {`, decl.NotJSON},
+		{"dependencies is a list", `{"dependencies": ["next"]}`, decl.Shape},
+		{"engines is not an object", `{"engines": "node"}`, decl.Shape},
+		{"declares nothing", `{"name": "demo"}`, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract("package.json", []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
+		})
+	}
 }

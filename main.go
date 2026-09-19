@@ -65,7 +65,8 @@ Options:
   --json          print JSON instead of the table, one entry per declaration
   --verbose       also name the declarations that had no date to place:
                   software endoflife.date does not track, cycles it has not
-                  dated yet, and lines that follow the newest release
+                  dated yet, and lines that follow the newest release; and
+                  the files that were recognized and read nothing from
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -88,7 +89,7 @@ Exit codes:
 // instructionsText is the paragraph an agent needs in order to use eolwhen:
 // what it answers, what the argument is, and what each exit code means for
 // what to do next. README.md quotes it verbatim.
-const instructionsText = "To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it.\n"
+const instructionsText = "To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it. A recognized file that does not parse is read as nothing at all, whole rather than in part; when there is no row the `eolwhen:` line counts those files, `--verbose` names each one with a short reason and `--json` carries them in `skipped`, so an empty answer always says whether it is a complete one.\n"
 
 type cliArgs struct {
 	showHelp         bool
@@ -188,9 +189,10 @@ func exitCode(fs []timeline.Finding, now time.Time) int {
 }
 
 // notes lists what the answer still owes the caller in words: the lines that
-// could not be read, why an empty table is empty, and what a window hid.
-// They go to stderr so stdout carries rows alone.
-func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []string {
+// could not be read, the files nothing could be read from, why an empty
+// table is empty, and what a window hid. They go to stderr so stdout carries
+// rows alone.
+func notes(dir string, r resolve.Result, shown []timeline.Finding, sk []decl.Skipped, a cliArgs) []string {
 	var out []string
 	for _, u := range collapse(r.Unreadable) {
 		out = append(out, complaint(u))
@@ -215,6 +217,7 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 		for _, d := range r.Untracked {
 			out = append(out, fmt.Sprintf("%s: %s is not tracked by endoflife.date", d.Source, d.What()))
 		}
+		out = append(out, unreadNotes(sk, true)...)
 	}
 	// An empty table is worth one line saying why, and the reader wants that
 	// line to answer the question they ran the tool with. Declarations that
@@ -239,6 +242,38 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, a cliArgs) []
 		out = append(out, "everything declared in "+dir+" follows the newest release, so there is no date to place")
 	default:
 		out = append(out, "nothing declared in "+dir+" is tracked by endoflife.date")
+	}
+	// A file that was read nothing from is the one thing an empty answer
+	// cannot account for on its own: the directory may declare plenty this
+	// run never saw, and the line above would say none of it. Only when
+	// there is no row at all, because a run with rows has its answer and
+	// the default output is where that answer has to stay short. --verbose
+	// has already named each file above.
+	if len(r.Findings) == 0 && !a.verbose {
+		out = append(out, unreadNotes(sk, false)...)
+	}
+	return out
+}
+
+// unreadNotes words the files that were recognized and read nothing from:
+// each of them when detail was asked for, and otherwise the count alone.
+//
+// The count is what says an answer may be short of what the directory
+// declares, which is a different thing from the answer being empty. Which
+// files they were is detail, and detail is what --verbose is.
+func unreadNotes(sk []decl.Skipped, verbose bool) []string {
+	if len(sk) == 0 {
+		return nil
+	}
+	if !verbose {
+		if len(sk) == 1 {
+			return []string{"1 file was recognized and read nothing from; --verbose names it"}
+		}
+		return []string{fmt.Sprintf("%d files were recognized and read nothing from; --verbose names them", len(sk))}
+	}
+	out := make([]string, 0, len(sk))
+	for _, s := range sk {
+		out = append(out, fmt.Sprintf("%s: %s, so nothing in it was read", s.File, s.Reason))
 	}
 	return out
 }
@@ -305,15 +340,21 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
-	ds, us, err := scan.Dir(a.dir)
+	ds, us, sk, err := scan.Dir(a.dir)
 	if err != nil {
 		fmt.Fprintln(stderr, "eolwhen:", err)
 		return exitUsage
 	}
 	if len(ds) == 0 && len(us) == 0 {
+		// Nothing was declared, which is an answer of its own. The files
+		// that were read nothing from are what says whether it is the whole
+		// of one, so they are said here as they are said anywhere else.
 		fmt.Fprintf(stderr, "eolwhen: no version declarations in %s\n", a.dir)
+		for _, n := range unreadNotes(sk, a.verbose) {
+			fmt.Fprintln(stderr, "eolwhen:", n)
+		}
 		if a.asJSON {
-			fmt.Fprint(stdout, timeline.JSON(timeline.Report{Directory: a.dir}, time.Now()))
+			fmt.Fprint(stdout, timeline.JSON(timeline.Report{Directory: a.dir, Skipped: sk}, time.Now()))
 		}
 		return exitNone
 	}
@@ -330,7 +371,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 			return exitCatalog
 		}
 	}
-	return report(a, c, ds, us, time.Now(), stdout, stderr)
+	return report(a, c, ds, us, sk, time.Now(), stdout, stderr)
 }
 
 // needsCatalog reports whether anything read has to be looked up: a
@@ -353,7 +394,7 @@ func needsCatalog(ds []decl.Decl, us []decl.Unreadable) bool {
 // the whole path from a declaration to a row and an exit code is exercised
 // without a request. The catalog may be nil when needsCatalog said nothing
 // has to be looked up.
-func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable, now time.Time, stdout, stderr io.Writer) int {
+func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable, sk []decl.Skipped, now time.Time, stdout, stderr io.Writer) int {
 	r := resolve.All(c, ds, us)
 	timeline.Sort(r.Findings)
 	shown := r.Findings
@@ -370,7 +411,8 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 			// Said on stderr without being asked for, so carried here
 			// without being asked for: a caller reading the document is
 			// owed everything one reading the words would have been told.
-			Ended: r.Ended,
+			Ended:   r.Ended,
+			Skipped: sk,
 		}
 		if a.verbose {
 			doc.Moving, doc.Untracked, doc.Undated = r.Moving, r.Untracked, r.Undated
@@ -378,7 +420,7 @@ func report(a cliArgs, c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable,
 		fmt.Fprint(stdout, timeline.JSON(doc, now))
 		return exitCode(shown, now)
 	}
-	for _, n := range notes(a.dir, r, shown, a) {
+	for _, n := range notes(a.dir, r, shown, sk, a) {
 		fmt.Fprintln(stderr, "eolwhen:", n)
 	}
 	fmt.Fprint(stdout, timeline.Table(shown, now))

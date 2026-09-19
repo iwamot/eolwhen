@@ -16,7 +16,11 @@ A directory reached through a symlink is that directory. Links met further down 
 
 A file the walk offers but cannot open is reported by path and the rest of the tree is still read. One unreadable corner is not a reason to refuse an answer, though the directory named on the command line has to be readable, being the question itself.
 
-A file that does not parse — a workflow or Compose file that is not YAML yet, a `mise.toml` that is not TOML yet, a `composer.json` that is not JSON yet — is skipped in silence, and whole: half a file is not half a set of declarations. The tool that owns it reports that better than this one can, and a file mid-edit is not a declaration that could not be read.
+A file that does not parse — a workflow or Compose file that is not YAML yet, a `mise.toml` that is not TOML yet, a `composer.json` that is not JSON yet — is set aside whole, and without a complaint: half a file is not half a set of declarations. The tool that owns it reports that better than this one can, and a file mid-edit is not a declaration that could not be read.
+
+Setting it aside quietly is not forgetting it. A directory whose recognized files all failed to parse reads exactly like one that declares nothing, so whenever there is no row the `eolwhen:` line counts them — `2 files were recognized and read nothing from` — and `--verbose` names each one. The reason is one of a closed set, so a caller tells them apart without reading prose: `not JSON`, `not YAML`, `not TOML`, `not XML`, and `not the shape it is read for` for a document that parses and then does not hold what it is read for, such as a `package.json` whose `dependencies` is a list rather than an object. `--json` carries the same pairs in `skipped`.
+
+Nothing the file itself held is passed on. A parser's own message quotes the line it stopped on, and a file mid-edit may hold anything — a token, a password in a Compose file that is not YAML yet — so the path and the reason are the whole of what is said about it.
 
 ## From a version to a row
 

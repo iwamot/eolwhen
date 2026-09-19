@@ -68,10 +68,14 @@ const (
 
 // Extract reads every package a package.json depends on, and its package
 // manager.
-func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	members, skipped := jsonfile.Read(data, objects, []string{manager})
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	var ds []decl.Decl
 	var us []decl.Unreadable
-	for _, m := range jsonfile.Read(data, objects, []string{manager}) {
+	for _, m := range members {
 		src := decl.Source{File: file, Line: m.Line}
 		switch m.In {
 		case engines:
@@ -114,7 +118,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			})
 		}
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // packageManager reads the field, which writes the tool and its version as

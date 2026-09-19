@@ -231,7 +231,8 @@ func TestJSON(t *testing.T) {
 	got := JSON(Report{Directory: "some/dir", Findings: fs, Unreadable: us, Hidden: 2, Moving: moving,
 		Untracked: []decl.Decl{{Product: "biome", Version: "2.5.13", Source: decl.Source{File: "mise.toml", Line: 5}}},
 		Undated:   []Undated{{Product: "go", Cycle: "1.26", Source: decl.Source{File: "go.mod", Line: 9}}},
-		Ended:     []Undated{{Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 4}}}}, now)
+		Ended:     []Undated{{Product: "metabase", Cycle: "0.46", Source: decl.Source{File: "compose.yml", Line: 4}}},
+		Skipped:   []decl.Skipped{{File: "package.json", Reason: decl.NotJSON}}}, now)
 	for _, want := range []string{
 		`"directory": "some/dir"`,
 		`"product": "python"`,
@@ -256,6 +257,10 @@ func TestJSON(t *testing.T) {
 		// A line following the newest release is a field here too, so that
 		// --json owes a caller nothing --verbose would have said.
 		`"text": "postgres:latest"`,
+		// A file that was read nothing from names itself and the closed-set
+		// reason, and carries no line: the whole of it was set aside.
+		`"source": "package.json"`,
+		`"reason": "not JSON"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("JSON is missing %s:\n%s", want, got)

@@ -113,3 +113,42 @@ func what(product, text string) string {
 	}
 	return product + " " + text
 }
+
+// Skipped is a file an extractor recognized and read nothing from: the file
+// does not parse, or a member it is read for does not hold what it is read
+// for. It names a file and not a line, because the whole of it is set aside
+// — half a file is not half a set of declarations — and because the line a
+// parser stopped on is not where a reader has to go to fix it.
+//
+// It is kept apart from Unreadable, which is a line to go and look at.
+// Nothing is wrong with a file mid-edit, and the tool that owns it says what
+// is wrong with it better than this one can, so a skipped file earns no
+// complaint. What it costs is that the directory declares more than the run
+// could see, and that is worth being able to find out, which is what this
+// is for.
+type Skipped struct {
+	File   string
+	Reason string
+}
+
+// The reasons a file is set aside whole. They are a closed set, so a caller
+// reading the document tells one from another without reading prose, and
+// none of them repeats anything the file said. A parser's own message quotes
+// the line it stopped on, and a file this tool skips may hold anything at
+// all — a token, a password in a Compose file that is not YAML yet — so the
+// message is the one thing not to pass on.
+//
+// Each of them is written to follow the path it is about, so that a line of
+// stderr reads as a sentence and still begins with the file, which is what
+// keeps stderr greppable.
+const (
+	NotJSON = "not JSON"
+	NotYAML = "not YAML"
+	NotTOML = "not TOML"
+	NotXML  = "not XML"
+	// Shape is a document that parses and then does not hold what it is
+	// read for: a package.json whose dependencies is a list, an engines
+	// whose value is a number. The file is its format and is still not a
+	// manifest, which is a different thing to go and look at.
+	Shape = "not the shape it is read for"
+)

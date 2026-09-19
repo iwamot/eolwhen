@@ -41,7 +41,7 @@ type want struct {
 
 func check(t *testing.T, body string, ws ...want) {
 	t.Helper()
-	ds, us := Extract("App.csproj", []byte(body))
+	ds, us, _ := Extract("App.csproj", []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -221,7 +221,7 @@ func TestExtractReportsWhatItCannotRead(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("App.csproj", []byte(project(tt.props)))
+			ds, us, _ := Extract("App.csproj", []byte(project(tt.props)))
 			if len(ds) != 0 {
 				t.Fatalf("declarations = %+v; want none", ds)
 			}
@@ -259,7 +259,7 @@ func TestExtractReadsNothingElse(t *testing.T) {
 		{"a property outside a property group", "<Project>\n  <TargetFramework>net6.0</TargetFramework>\n</Project>\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("App.csproj", []byte(tt.body))
+			ds, us, _ := Extract("App.csproj", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v, %+v; want nothing", ds, us)
 			}
@@ -278,6 +278,34 @@ func TestExtractPassesOverMarkupInsideAProperty(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			check(t, project(tt.props), want{"dotnet", "6.0", 3})
+		})
+	}
+}
+
+// Markup that does not parse sets the file aside whole, and what was read
+// before the decoder stopped goes with it: half a file is not half a set of
+// declarations. A file that parses and declares no target framework is not
+// set aside at all.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"markup that does not parse", "<Project><PropertyGroup><TargetFramework>net6.0</Project>", decl.NotXML},
+		{"a property the file never closes", "<Project>\n  <PropertyGroup>\n    <TargetFramework>net6.0", decl.NotXML},
+		// The first group is whole and the second is not, and the whole
+		// file goes: a run that kept net6.0 here would report a directory
+		// as building for one runtime when the file names two.
+		{"a second group cut short", project("    <TargetFramework>net6.0</TargetFramework>\n") +
+			"<Project>\n  <PropertyGroup>\n    <TargetFramework>net7.0", decl.NotXML},
+		{"no target framework in it", project("    <Nothing>x</Nothing>\n"), ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract("App.csproj", []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
 		})
 	}
 }

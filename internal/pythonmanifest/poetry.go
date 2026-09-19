@@ -43,10 +43,14 @@ type poetryDoc struct {
 // Poetry writes a dependency as a key rather than as a PEP 508 string, and
 // asks for versions in operators of its own: a caret and a tilde that mean
 // what npm's mean, beside the comparisons every manifest shares.
-func readPoetry(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+func readPoetry(path string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	entries, skipped := poetry(data)
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	var ds []decl.Decl
 	var us []decl.Unreadable
-	for _, p := range poetry(data) {
+	for _, p := range entries {
 		ecosystem := ecosystemOf(p.runtime)
 		src := decl.Source{File: path, Line: p.line}
 		allowed, ok := poetryAllows(p.constraint)
@@ -69,7 +73,7 @@ func readPoetry(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			Source:    src,
 		})
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // poetry reads every dependency of every Poetry table. The file is parsed
@@ -80,11 +84,11 @@ func readPoetry(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 // project accepts, which is requires-python under another name, and it is
 // read the same way: as a requirement on the interpreter, which names a
 // cycle when it is written closed and nothing when it is not.
-func poetry(data []byte) []poetryDecl {
+func poetry(data []byte) ([]poetryDecl, string) {
 	var doc poetryDoc
 	md, err := toml.Decode(string(data), &doc)
 	if err != nil {
-		return nil
+		return nil, tomlReason(err)
 	}
 	lines := poetryLines(data)
 	var out []poetryDecl
@@ -98,7 +102,7 @@ func poetry(data []byte) []poetryDecl {
 			})
 		}
 	}
-	return out
+	return out, ""
 }
 
 // poetryTable is one dependency table: the name it is written under, which
