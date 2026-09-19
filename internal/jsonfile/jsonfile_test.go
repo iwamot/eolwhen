@@ -65,6 +65,11 @@ func TestReadsNothing(t *testing.T) {
 		{"cut short before a wanted object closes", `{"dependencies": {"next": "13"`},
 		{"cut short after a wanted object closed", `{"dependencies": {"next": "13"}, "name"`},
 		{"cut short inside a member nobody wanted", `{"scripts": {"build"`},
+		// A file holding a document and then something else is not a
+		// document, whatever the part that parses holds.
+		{"something after the document", `{"dependencies": {"next": "13"}} garbage`},
+		{"a second document after the first", `{"dependencies": {"next": "13"}} {}`},
+		{"a trailing comma", `{"dependencies": {"next": "13"},}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Read([]byte(tt.body), []string{"dependencies"}, []string{"packageManager"})

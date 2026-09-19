@@ -38,24 +38,30 @@ type Member struct {
 // not half a set of declarations, and the tool that owns it says what is
 // wrong with it better than this one can.
 func Read(data []byte, objects, texts []string) []Member {
+	// The walk below stops where the top-level object closes and never
+	// looks past it, so what follows a document goes unseen, and a
+	// document that runs out mid-object leaves it to the decoder whether
+	// anything says so. Reading the whole of it first is what makes a
+	// file that is not one document unreadable here rather than wherever
+	// a particular Go release happens to notice. It is also why nothing
+	// below reads an error from the decoder: every token is there, and
+	// what is left to find is the shape a member holds.
+	if !json.Valid(data) {
+		return nil
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+	if t, _ := dec.Token(); t != json.Delim('{') {
 		return nil
 	}
 	var out []Member
 	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return nil
-		}
+		key, _ := dec.Token()
 		// A JSON object's key is a string by construction.
 		name, _ := key.(string)
 		isObject := slices.Contains(objects, name)
 		if !isObject && !slices.Contains(texts, name) {
 			var skip json.RawMessage
-			if err := dec.Decode(&skip); err != nil {
-				return nil
-			}
+			_ = dec.Decode(&skip)
 			continue
 		}
 		read, ok := member(dec, data, name, isObject)
@@ -67,16 +73,14 @@ func Read(data []byte, objects, texts []string) []Member {
 	return out
 }
 
-// member reads one wanted top-level member. ok is false when the document
-// ran out, and when the member did not hold what the caller said it would.
+// member reads one wanted top-level member. ok is false when the member did
+// not hold what the caller said it would, the document itself being whole
+// by the time anything here reads it.
 func member(dec *json.Decoder, data []byte, in string, isObject bool) (out []Member, ok bool) {
 	// Taken before the member is read, so that an object spanning many
 	// lines does not put its own name at the end of itself.
 	start := lineAt(data, dec.InputOffset())
-	t, err := dec.Token()
-	if err != nil {
-		return nil, false
-	}
+	t, _ := dec.Token()
 	if !isObject {
 		s, isText := t.(string)
 		if !isText {
@@ -88,10 +92,7 @@ func member(dec *json.Decoder, data []byte, in string, isObject bool) (out []Mem
 		return nil, false
 	}
 	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return nil, false
-		}
+		key, _ := dec.Token()
 		name, _ := key.(string)
 		line := lineAt(data, dec.InputOffset())
 		var value string
@@ -105,9 +106,9 @@ func member(dec *json.Decoder, data []byte, in string, isObject bool) (out []Mem
 		}
 	}
 	// The loop ends at the object's closing brace, and by then it can be
-	// nothing else: a document that ran out mid-object has already been
-	// given up on above. Stepping over it is what leaves the decoder on the
-	// next member of the document.
+	// nothing else: the document was whole before any of it was read.
+	// Stepping over it is what leaves the decoder on the next member of
+	// the document.
 	_, _ = dec.Token()
 	return out, true
 }
