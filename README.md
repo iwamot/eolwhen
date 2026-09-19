@@ -63,121 +63,9 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 | `pom.xml` | the `<parent>` it builds on and each `<dependency>` whose group and artifact endoflife.date publishes, where this file settles the version |
 | `.github/workflows/*.yml` (and `.yaml`) | the `runs-on:` runner images, and the versions given to `actions/setup-node`, `-python`, `-go`, `-dotnet`, `-java`, `ruby/setup-ruby` and `shivammathur/setup-php`, including the ones a job's `strategy.matrix` lists |
 
-A tool list is the one place where finding the file does not promise there is anything to look up. `.nvmrc` is Node.js and Node.js has an end-of-life policy; a tool list holds whatever the project uses, and `biome`, `hugo` and `jq` have none at all. Those are set aside without a word, and `--verbose` accounts for them. A `mise.toml` key may carry a backend — `aqua:`, `go:`, `npm:` — and then it names a package rather than a tool. The backend is what fixes the registry, so the name is answered as a `Gemfile`'s is: through the purls endoflife.date publishes for that registry and through nothing else. `aqua:`, `github:` and `ubi:` install from a GitHub release and name the repository, which is a github purl; `cargo:`, `conda:`, `dotnet:`, `gem:`, `go:`, `npm:`, `pipx:` and `spm:` name their own registries; `core:` names one of mise's own tools, which a bare name reaches anyway. A backend with no registry to look a name up in — an asdf or vfox plugin, a download from a URL or a bucket — is passed over. A `.tool-versions` has no backends: asdf reads a plugin name and nothing else.
-
 The directory is searched to the bottom, so a monorepo's `packages/web/.nvmrc` and a `docker/Dockerfile` are both found. Directories holding somebody else's code — `node_modules`, `vendor`, `third_party`, `.venv`, `.git` and the like — are skipped, because a `.nvmrc` inside a dependency is its author's declaration and not this directory's.
 
-### How a line reaches the timeline
-
-The place a version is written is what decides the software, so nothing is guessed from the text. A file name can only mean one thing: `.nvmrc` is Node.js. An official image name can only mean one thing too, because that namespace is a short curated list — `library/postgres` is PostgreSQL.
-
-Outside that library anyone can name an image anything, so the name alone settles nothing — but endoflife.date publishes the Docker Hub repository each of its products ships under, as a purl. `opensearchproject/opensearch` is OpenSearch because upstream says so, and `FROM ghcr.io/acme/python:3.7` is still not Python, because nobody said so. An image nobody published a purl for is a declaration of software the catalog does not track, like `jq` in a tool list: there was never a date to find, so it is set aside without a word and `--verbose` accounts for it.
-
-`FROM python@sha256:...` with no tag is reported, because a digest does not say which version it is.
-
-A Compose file is read service by service. What sits under `services:` is a service and nothing else is, because a file keeps its templates in extension fields — `x-defaults` and the like — and a service pulls one in with a merge key. Merges are applied the way YAML applies them, so a service that sets its own image over an inherited one declares the image it set.
-
-A version written once and referred to elsewhere is still read: a workflow that keeps it in `env:` under an anchor and writes `python-version: *python` in the step declares it at the step, which is the line to go and change. An anchor may be defined more than once, and an alias means the definition above it, as YAML says; one added further down does not reach back and change what an earlier reference meant.
-
-Versions are read as they are written, quoted or not. A workflow that says `python-version: 3.10` means the 3.10 line, and reading it as a number would make it 3.1, which is a different Python that went out of support in 2012.
-
-A runner label is the same idea from the other end: endoflife.date's runner-image product names its release cycles `macos-13` and `ubuntu-22.04`, which is exactly what `runs-on:` says, so no translation is needed at all. A label is only read when it is spelled the way one of GitHub's images is: a family, then a version or the word latest. A custom pool is free to start with the same word — `ubuntu-x64-small` and `ubuntu-slim` are real ones — so `self-hosted` and its kind are left alone, because they name a machine and not a version. GitHub writes `ubuntu-24.04-arm` where the catalog writes `ubuntu-24.04-arm64`, so a row spells it the catalog's way.
-
-A tag that names only a major line — `redis:7`, or `python-version: 3` — is not a version but a rule for following one: the image moves to the next 7.x the day it exists. It gets no row, because a date that changes on its own is not a date this tool can put on a timeline. Neither does `:latest`, `ubuntu-latest`, or a tool pinned to `stable`: those lines follow the newest release on purpose, so there is nothing wrong with them and nothing to go and change. They are set aside without a word and `--verbose` accounts for them, because a complaint nobody can act on is what buries the rows that matter.
-
-A version reaches its release cycle by dot-separated segments, not by string prefix: `3.10.2` reaches Python's 3.10 cycle and never its 3.1 cycle, which expired in 2012. A tag that names a codename instead of a number is resolved through the codename endoflife.date publishes, so `FROM debian:buster` reads as Debian 10 and `FROM ubuntu:jammy` as Ubuntu 22.04.
-
-A version older than every cycle endoflife.date tracks gets a row of its own. A `redis:3.2` in a Compose file is the most neglected line in the directory, and reading it as a version nobody has heard of is the one answer that is certainly wrong — the catalog starts at 4.0 because everything below it stopped being a going concern long ago. The row carries the day that oldest cycle ended, which support for anything older had already run out by, and names the cycle `<4.0` so that it says what it knows rather than a day it cannot know:
-
-```
-$ eolwhen
--2270d  2020-07-01  redis <4.0  compose.yml:12
-```
-
-A cycle reached that way still gets no row when endoflife.date has given it no end date. Nothing is wrong with the line and there is nothing to go and change — support has not been dated yet, which is what a recent release looks like — so it is set aside without a word, like the software the catalog does not track, and `--verbose` accounts for both.
-
-Upstream sometimes says the opposite: that a cycle is out of support, without publishing the day it happened. There is still no date to put on a timeline, so there is still no row — but a dead release is not a current one, and it is what the reader ran the tool to find out. Those cycles are reported on stderr like a line that could not be read, whether or not `--verbose` was asked for, and the same cycle declared in several places is said once with a count.
-
-### The other half of an image tag
-
-`FROM python:3.11-bullseye` declares two things. The Python is one, and the Debian 11 it is built on is the other — and the Debian is usually the half that expires first, because a base image outlives the runtime's own support window. So the variant after the dash is read too: a segment spelled `alpine3.19` names Alpine 3.19 outright, and a segment that is one word may be a distribution codename, which names the release and the distribution at once. Which words those are is endoflife.date's answer and not a list kept here, so `bookworm` reads as Debian 12 while `slim`, `fpm` and `jre` are builds of something rather than releases of anything, and say nothing.
-
-A codename two products share is read as neither, since which one a tag meant would be a guess — and a codename is worth reading precisely because it needs none. The same word is what nvm writes in `.nvmrc` as `lts/hydrogen`, which is Node.js 18.
-
-A `FROM` written in terms of a build argument is read as `docker build` with no `--build-arg` resolves it, which is the build the file describes: the argument's default, or nothing at all when it was declared without one. That is what makes `FROM ${REGISTRY}python:3.11-bullseye` under a bare `ARG REGISTRY` read as the official image it falls back to. Only the arguments above the first `FROM` are in scope for one, which is Docker's own rule, and a name no `ARG` declares comes from outside the file, so the line is reported instead.
-
-### Which build of Java
-
-There is no such thing as a version of Java on its own. endoflife.date tracks nine builds of it — Temurin, Zulu, Corretto, Oracle's own and the rest — each with a calendar of its own, so `17` says nothing until something says whose 17 it is. That is why a `<maven.compiler.source>` in a `pom.xml` and a `.java-version` are not read: neither names a build.
-
-`actions/setup-java` does, in an input of its own:
-
-```yaml
-- uses: actions/setup-java@v4
-  with:
-    distribution: temurin
-    java-version: '8'
-```
-
-The value is a closed vocabulary the action defines, and the catalog already answers to most of it — `temurin` is Eclipse Temurin and `corretto` is Amazon Corretto by upstream's own aliases — so the word is handed on as it was written. Only `oracle` and `microsoft`, which the catalog has no alias for, are spelled its way instead. A distribution it knows nothing about is passed over like any other software it does not track, and a step naming none installs nothing this can date.
-
-### What a matrix declares
-
-A workflow that writes `python-version: ${{ matrix.python-version }}` is not hiding the versions it runs on — they are listed a few lines above it, in the same job's `strategy.matrix`, which is where a project says which versions it supports. Each is read there, and reported at the line it was written on, which is the line to go and change:
-
-```
-$ eolwhen
--320d  2025-10-31  python 3.9  .github/workflows/ci.yml:8
-```
-
-A matrix belongs to its job, so one job's `os:` says nothing about another's. `include:` holds whole combinations and may name a version the list does not, so what it says under a key is read as another value of it; `exclude:` takes combinations away and declares nothing. A matrix built by an expression — `fromJSON` of another job's output — lists nothing to read, and an expression doing more than naming one key is left alone: what it works out to is the workflow's to decide at run time.
-
-### Which packages are a declaration
-
-A manifest is mostly libraries, and a library rarely has an end of life. What it also holds is the framework the application sits on, and a framework publishes a support calendar for the same reason a distribution does — Rails 6.1 stopped getting security fixes on 2024-10-01, and an application still asking for it is in the same position as one still asking for Debian 10.
-
-Which of the two a line names is upstream's answer rather than a guess made here. endoflife.date publishes the package name for the products that have one, so `rails` is Ruby on Rails and `laravel/framework` is Laravel on its word, and every other package is software it does not track and is passed over in silence. That is what keeps `gem "pg"` from reading as PostgreSQL: the database answers to `pg` as an alias, but the gem is the driver, which is different software on a different calendar, and a registry anyone can publish to is not a namespace to read names out of.
-
-A `composer.json` holds one line that is not a package at all. Composer reserves `php` for the version of the language the project runs on, so that key can only mean PHP — not because the name reads that way, but because Composer says so, which is the same kind of answer a `.python-version` gives. Its other reserved names are passed over: `ext-` and `lib-` ask for extensions, and `composer` and `hhvm` for the tooling, none of which is software with a release calendar of its own.
-
-```
-$ eolwhen
--1390d  2022-11-28  php 7.4    composer.json:4
--1333d  2023-01-24  laravel 8  composer.json:6
- -717d  2024-10-01  rails 6.1  Gemfile:3
-```
-
-A requirement usually pins a range rather than a version, and a range is still an answer when one release cycle is the only one it can be, because a row is about a cycle. Every version `~> 6.1.0` allows is Rails 6.1 and every version `^8.0` allows is Laravel 8, so those lines are dated. `~> 6` is not: it admits both 6.0 and 6.1, and which one was installed is written in the lockfile, which this does not read. Neither is one that leaves the upper end open, as `>= 6.0` does, nor one that leaves two ranges behind, as the union `^7.4 || ^8.0` does, nor a package given no requirement at all. Those are set aside without a word, and `--verbose` names them.
-
-A version with a letter in it — `7.1.0.rc1` — is passed over too. Where a pre-release falls against a release is the package manager's rule rather than a number's, and getting it wrong would date a line by a cycle it is not in.
-
-Each manifest writes its ranges in its own operators, and the same three characters can mean different things in two files. `~1.2` in a `composer.json` is every 1.x, while `~1.2` in a `package.json` is every 1.2.x, so each file is read by its own arithmetic rather than by a shared guess. A `package.json` also writes a line of versions as `16.x` or `3.4.*`, which names a cycle as squarely as a caret does. What it leaves for the lockfile is read as that: a union (`^7 || ^8`), a hyphen range, a floor with no ceiling, an alias (`npm:lodash-es@^4`), a `workspace:` or `file:` or repository requirement, and a dist-tag such as `latest`.
-
-A `package.json` has a line of its own that is not a dependency. `packageManager` names the package manager the project is run with and the exact version of it, which is what corepack installs, so it declares a tool the way a `mise.toml` entry does. The field's rule is one exact version, so a range or a `latest` there is a line to go and look at rather than one a resolver settles.
-
-Python is the ecosystem where the ranges usually do decide. A `requirements.txt` is written with `==`, which names one version, and `~=4.2.0` and `==4.2.*` each name one release cycle outright — so a neglected Python project says which Django it is running rather than leaving it to a resolver. A `pyproject.toml` writes the same requirements in `dependencies`, in an extra, or in a dependency group, and all of them are read. What is not read is the rest of the line: the extras in `django[argon2]`, which name parts of the same package, and the marker after a semicolon, which says when a requirement applies rather than to what. An exclusion (`!=`) leaves a range with a hole in it, and sets the whole requirement aside.
-
-Poetry writes the same dependencies its own way, as a key with a constraint rather than as a PEP 508 string, and a `pyproject.toml` is read both ways — a project moving from one to the other has both for a while. Poetry's operators are npm's rather than PEP 440's: `^4.2` is every 4.x from 4.2, `~1.14.0` every 1.14.x, and a version on its own is that version. An entry that names no version of its own — a dependency taken from a repository or a path, or one written as a constraint per interpreter — is set aside like any requirement an install settles. Its `python` key is left alone, being `requires-python` under another name.
-
-A `pom.xml` is the one manifest that does not close over itself. A version may be written as `${spring.version}`, and the property may be set in a parent POM this file does not hold; a dependency may carry no version at all, the parent deciding it, which is how a Spring Boot project is usually written. What is read is what the file settles on its own: a literal `<version>`, and a property the project's own `<properties>` sets. Everything else names no version here, and Maven is the one that resolves it. A dependency is read wherever it is declared — under `<dependencyManagement>`, or in a `<profile>` — because each of those is the project saying which version it builds with. A profile's own properties are not read: two profiles may set the same one differently, and which of them applies is settled when the build runs.
-
-A manifest also says what it asks of the host it runs on, and that is read as the same kind of requirement: a `composer.json`'s `php`, a `package.json`'s `engines`, a `pyproject.toml`'s `requires-python` and the `python` key of a Poetry table. Written open — `>=3.9`, `>=22` — it names a floor and no ceiling and so names no release cycle, which is how one is usually written and why it usually says nothing. Written closed — `^7.4`, `^18`, `==3.11.*` — it names one, and that is the runtime the project runs on as squarely as a `.python-version` would say it. Which of the two it is settles the answer; there is no line drawn between accepting a version and running on one, because a manifest does not draw one.
-
-PyPI treats a name with dashes, underscores and dots as one name — `typing_extensions` and `typing-extensions` are the same package — so a manifest may spell it any of those ways and still reach the product. That rule is PyPI's alone, and no other registry here gets it.
-
-### Which .NET a target framework names
-
-A project file says which runtime the project runs on, and nothing is guessed from the text there either: the target framework monikers are a vocabulary .NET defines. The word in front of the digits says which .NET it is. `net6.0` is Microsoft .NET and `net472` is the .NET Framework, which are different products on different calendars, and the dot is what tells them apart — the `.0` in `net5.0` was added so that the two could never be read as each other. A moniker of bare digits is one digit per segment, so `net481` is 4.8.1. `net35` reads as the 3.5 service pack, which is the only 3.5 still installable and the cycle endoflife.date tracks; reading it as a plain 3.5 would reach no cycle at all and date a target that is still supported by the day the 4.0 above it expired.
-
-A platform on the end — the `-windows` of `net8.0-windows` — says which APIs the target adds rather than which version of it is meant, so it is cut away. `<TargetFrameworks>` holds several at once, and each is a declaration of its own, as each line of a `.python-version` is. A project written before the SDK-style project existed spells the same declaration `<TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>`, which only ever named a .NET Framework.
-
-```
-$ eolwhen
--1606d  2022-04-26  dotnetfx 4.5.2  src/Legacy/Legacy.csproj:4
- -675d  2024-11-12  dotnet 6        src/Api/Api.csproj:3
-```
-
-A moniker naming something that is not a runtime is looked up under the name it gave, and nothing answers to it: `netstandard2.0` is an API contract rather than a thing that runs, and nobody publishes an end-of-life date for one, so it is set aside like a tool the catalog does not track. A target framework written as `$(DefaultTargetFramework)` names no version of its own — the value is in a `Directory.Build.props` or on the command line, neither of which is read — so there is nothing to place and nothing to go and change. `--verbose` accounts for both.
+The place a version is written is what decides the software, so nothing is guessed from the text: `.nvmrc` is Node.js, `library/postgres` is PostgreSQL, and a gem or an npm package reaches a product only through the package names endoflife.date publishes for it. A line with no date to find — software endoflife.date does not track, a cycle it has not dated yet, `ubuntu-latest` or `redis:7` following the newest release on purpose — is set aside without a word, and `--verbose` accounts for it. A line that could not be read — a digest-pinned `FROM`, a version no release cycle covers — is reported on stderr rather than guessed at. [docs/reading.md](https://github.com/iwamot/eolwhen/blob/main/docs/reading.md) says how each kind of line is read, and why a line gets a row or none.
 
 ## Using it
 
@@ -200,27 +88,16 @@ eolwhen: 2 more declarations expire further out than 2w; drop --within to see th
 
 Only rows go to stdout. Anything the answer needs a sentence for — a line that could not be read, a directory that declares nothing, a window that hid something — is an `eolwhen:` line on stderr, so `awk` over stdout reads rows and nothing else.
 
-An empty table is one line on stderr, and that line is the answer. A directory can come out empty without anything being wrong, and the line says which one it is: one running current versions, where no cycle it declares has been given an end date yet; one that declares nothing at all, which is answered without reading endoflife.date; one whose every declaration names software endoflife.date has no policy for; and one whose every line follows the newest release. All of them exit 0, because none of them is an error.
+An empty table is one line on stderr, and that line is the answer. A directory can come out empty without anything being wrong — one running current versions, where no cycle it declares has been given an end date yet, is the usual case — and the line says which one it is:
 
 ```
 $ eolwhen ../a-repo-kept-up-to-date
 eolwhen: nothing declared in ../a-repo-kept-up-to-date has an end-of-life date yet
-
-$ eolwhen /tmp/empty
-eolwhen: no version declarations in /tmp/empty
-
-$ eolwhen ../a-repo-of-tools
-eolwhen: nothing declared in ../a-repo-of-tools is tracked by endoflife.date
 ```
-
-A directory whose every line could not be read comes out empty too, and there the complaints are the answer: they are printed one per distinct complaint, and the closing line says only that nothing in the directory could be placed on the timeline.
 
 `--verbose` names the declarations that had no date to place — software endoflife.date does not track, cycles it has not dated yet, and the lines that follow the newest release. They are quiet by default because a repository doing everything right would otherwise spend a line on every file it keeps up to date, which is noise on the run that has an answer.
 
-The exit code is the answer, so a check can be one line. This one fails the
-job when something has already expired, passes when only future dates were
-found, and fails when the run could not answer at all — a usage error or an
-unreachable endoflife.date:
+The exit code is the answer, so a check can be one line. This one fails the job when something has already expired, passes when only future dates were found, and fails when the run could not answer at all — a usage error or an unreachable endoflife.date:
 
 ```bash
 eolwhen || [ $? = 2 ]
@@ -281,103 +158,37 @@ Examples:
   eolwhen ../some-neglected-checkout
   eolwhen --within 90d
 
-DIR is the directory to read, and defaults to the current one. It does not
-have to be a git repository. One directory is read per run; to cover several,
-loop over them in the shell.
+DIR defaults to the current directory. It does not have to be a git
+repository. It is searched to the bottom, skipping directories that hold
+somebody else's code (node_modules, vendor, .venv and the like), and one
+directory is read per run.
 
 Declarations are read from the runtime version files (.python-version,
-.nvmrc, .node-version, .ruby-version, .php-version, .go-version,
-.terraform-version, the go directive in go.mod), the tool lists (mise.toml,
-.tool-versions), the FROM lines of any Dockerfile, the
-image: of any Compose service, the gem lines of any Gemfile, the require of
-any composer.json, the dependencies of any package.json, pyproject.toml,
-requirements.txt or pom.xml, the target framework of any .csproj, .fsproj or
-.vbproj, and the runs-on labels and setup-* versions in .github/workflows,
-then matched against endoflife.date. DIR is searched to the bottom, skipping
-directories that hold somebody else's code: node_modules, vendor, .venv and
-the like.
-
-A package reaches a product only through the package names endoflife.date
-publishes, so rails is Ruby on Rails on upstream's word while pg is the
-PostgreSQL driver and reaches nothing. A composer.json's php is the one
-exception, Composer having reserved that name for the language, so it
-declares a runtime the way a .python-version does. A package.json's engines
-and a pyproject.toml's requires-python say the same kind of thing, and a
-packageManager names the tool the project is run with and the exact version
-corepack installs. A requirement on the host is read like any other: >=22
-names a floor and no ceiling and so names no cycle, while ^18 names one.
-
-A requirement that pins a range rather than a version still names a cycle
-when one is the only cycle it can be: ~> 6.1.0 is Rails 6.1, ^8.0 is
-Laravel 8 and 3.4.x is Tailwind CSS 3.4. One that could be two, or a
-package left to the lockfile, has no one version to date and is set aside.
-Each file's operators are its own: ~1.2 is every 1.x in a composer.json and
-every 1.2.x in a package.json. Python's decide more often than most, ==
-naming one version and ~=4.2.0 one release cycle, which is how a
-requirements.txt is usually written; a Poetry table in the same
-pyproject.toml writes npm's operators instead, and is read with them. A
-pom.xml settles fewer: a version written as ${spring.version} is read where
-the same file sets that property, and left to Maven where a parent POM does.
-
-A target framework moniker names the runtime a project runs on, and the dot
-says which .NET it is: net6.0 is Microsoft .NET, while net472 is the .NET
-Framework, a different product on a calendar of its own. A moniker naming
-something that is not a runtime, such as netstandard2.0, is set aside like
-software the catalog does not track. So is one written as an MSBuild
-property, the value being in a file this does not read.
-
-An image outside the Docker official library is read through the Docker Hub
-repository endoflife.date publishes for each product, so
-opensearchproject/opensearch is OpenSearch on upstream's word; a name nobody
-published is software the catalog does not track, like a tool in a tool
-list. An official image's tag that names the distribution it was built on
-declares that too: python:3.11-bullseye is a Python and a Debian 11, and the
-Debian is usually the half that expires first. A FROM written in terms of a
-build argument is read as a docker build with no --build-arg resolves it,
-and a version given as ${{ matrix.* }} is read from the job's own
-strategy.matrix, which is where a project says which versions it supports.
-There is no version of Java on its own — endoflife.date tracks nine builds
-of it, each with a calendar — so setup-java is read through the distribution
-it names beside the version, and a step naming none installs nothing to date.
-
-Every expired declaration is printed, oldest first, together with the ones
-still ahead. A version older than every cycle endoflife.date tracks gets a
-row of its own, reading <4.0 and carrying the day that oldest cycle ended,
-which support for anything older had run out by. A line this tool could not
-read — a digest-pinned FROM, an expression it cannot work out, a version no
-release cycle covers — is reported on stderr rather than guessed at, once
-per distinct complaint. So is a cycle endoflife.date calls out of support
-without publishing the day: there is no date to place it on, and it is out
-of support all the same.
-A declaration with no date to place is set aside without a word: software
-endoflife.date does not track, a cycle it has not dated yet, and a line that
-follows the newest release on purpose, such as ubuntu-latest, a :latest tag
-or a tool pinned to stable. An empty table is one line on stderr saying
-which of these the directory is.
+.nvmrc, .ruby-version, go.mod, ...), the tool lists (mise.toml,
+.tool-versions), the FROM lines of Dockerfiles and the images of Compose
+services, the frameworks named in Gemfile, composer.json, package.json,
+pyproject.toml, requirements.txt and pom.xml, the target framework of .NET
+project files, and the runners and setup-* versions of GitHub workflows,
+then matched against endoflife.date. How each kind of line is read:
+https://github.com/iwamot/eolwhen/blob/main/docs/reading.md
 
 Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
-  --json          print JSON instead of the table: one entry per declaration,
-                  with the unreadable lines and the cycles that are over in
-                  the document
-  --verbose       also say which declarations have no date to place: software
-                  endoflife.date does not track, cycles it has not dated yet,
-                  and lines that follow the newest release on purpose
+  --json          print JSON instead of the table, one entry per declaration
+  --verbose       also name the declarations that had no date to place:
+                  software endoflife.date does not track, cycles it has not
+                  dated yet, and lines that follow the newest release
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
 
 Output:
-  Each row is the days until support ends — 0 on the day it ends, negative
-  after — then the date, the software and its release cycle, and every place
-  it was declared. One row is one release cycle, however many lines declared
-  it: a multi-stage build naming the same base three times is one thing to
-  deal with, and a file is named once with its lines behind it, as
-  Dockerfile:2,22,34.
-  Only rows go to stdout; everything else is an `eolwhen:` line on stderr.
-  The exit code answers for the rows that were printed, so --within narrows
-  what it covers as well as what is shown.
+  One row per release cycle: the days until support ends (0 on the day it
+  ends, negative after), the date, the software and its release cycle, and
+  every place it was declared, as Dockerfile:2,22,34. Rows go to stdout;
+  everything else is an `eolwhen:` line on stderr. The exit code answers for
+  the rows that were printed, so --within narrows what it covers too.
 
 Exit codes:
   0  nothing to report, including a directory with no declarations
@@ -385,19 +196,11 @@ Exit codes:
   2  nothing has expired, but something will
   3  usage error: fix the flags or the directory
   4  endoflife.date could not be read: check the network, then retry
-```
 
 - A release cycle's end-of-life date is the first day without support, so something due today reads as `0d` and counts as expired. The sign says which side of today a date falls on, and the day it lands on takes none. Days are counted between calendar days, and today is today where you are: endoflife.date publishes a date rather than a moment, so counting from anyone else's calendar would put a date and a number that disagree on the same row.
 - Rows are ordered by the date itself, oldest first, so the timeline runs in one direction and the most overdue reads at the top.
-- `.python-version` may name several versions, as pyenv allows; each gets its own row.
-- A cycle with no announced end-of-life date is set aside rather than printed, because there is no day to place it on. Current releases are often in this state, so nothing is owed and `--verbose` accounts for it. A cycle endoflife.date marks as out of support without publishing a date is reported on stderr instead: the same missing day, the opposite situation.
-- Software endoflife.date does not track is passed over without a word, whatever version it was given. Plenty of tools publish no end-of-life policy at all, and there was never a date to find for them; a `jq = "latest"` is a line about jq before it is a line about latest.
-- The runner-image catalog holds the images GitHub offers and the ones it retired most recently, so a label retired longer ago — `ubuntu-18.04`, `windows-2019` — is reported as covered by no release cycle. A workflow still asking for one has already stopped running.
-- A file the walk offers but cannot open is reported by path and the rest of the tree is still read. One unreadable corner is not a reason to refuse an answer, though the directory named on the command line has to be readable, being the question itself.
-- A directory reached through a symlink is that directory. Links met further down the tree are left alone, in silence: a link names something that sits somewhere else, whose declarations belong where it sits rather than here, and leaving links alone is also what keeps a loop from being possible. Only plain files are read, so a pipe or a device named like a manifest is passed over as well.
 - The exit code answers for the rows that were printed, so `--within 90d` turns the run into a check for "is anything expiring in the next 90 days", and what the window hid is not counted. A cycle that is out of support with no date has no row either, and neither has a line that could not be read, so neither of those changes it.
 - The same complaint from several places is said once, with a count. Nearly every workflow in a healthy repository says `runs-on: ubuntu-latest`, and knowing that once is enough; `grep` finds the rest.
-- A file that does not parse — a workflow or Compose file that is not YAML yet, a `mise.toml` that is not TOML yet, a `composer.json` that is not JSON yet — is skipped in silence, and whole: half a file is not half a set of declarations. The tool that owns it reports that better than this one can, and a file mid-edit is not a declaration that could not be read.
 - The whole catalog — every product endoflife.date knows, with every cycle — is fetched from endoflife.date when a run needs it. There is no prebuilt database in the binary and nothing to update.
 - The endoflife.date API is beta and says breaking changes can happen, so only the fields this tool needs are read and the rest is ignored.
 - While the version is 0.x, the exit codes and the shape of the output can still change between releases; from 1.0 they only gain cases.
