@@ -41,7 +41,7 @@ func TestExtract(t *testing.T) {
 		"    build: .\n" +
 		"  legacy:\n" +
 		"    image: ghcr.io/acme/web:1.0\n"
-	ds, us := Extract("compose.yml", []byte(body))
+	ds, us, _ := Extract("compose.yml", []byte(body))
 	// The alpine between them is the variant the postgres tag carries, which
 	// is declared at the same line as the image itself, and the last is the
 	// private image, handed on as the repository it is.
@@ -83,7 +83,7 @@ func TestExtractNothing(t *testing.T) {
 		{"not YAML", "\tthis: is: not: yaml\n  - [\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("compose.yml", []byte(tt.body))
+			ds, us, _ := Extract("compose.yml", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
@@ -95,7 +95,7 @@ func TestExtractNothing(t *testing.T) {
 // and a template nobody applies is not a service.
 func TestExtractAnchored(t *testing.T) {
 	body := "x-db: &db\n  image: postgres:11\nservices:\n  cache:\n    image: &img redis:6\n"
-	ds, us := Extract("compose.yml", []byte(body))
+	ds, us, _ := Extract("compose.yml", []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -107,7 +107,7 @@ func TestExtractAnchored(t *testing.T) {
 // TestExtractVariable: Compose interpolates the environment, so a version
 // written as a variable is not in the file.
 func TestExtractVariable(t *testing.T) {
-	ds, us := Extract("compose.yml", []byte("services:\n  db:\n    image: postgres:${PG_TAG}\n"))
+	ds, us, _ := Extract("compose.yml", []byte("services:\n  db:\n    image: postgres:${PG_TAG}\n"))
 	if len(ds) != 0 || len(us) != 1 || us[0].Reason != "takes its version from a variable" {
 		t.Errorf("Extract = %+v, %+v", ds, us)
 	}
@@ -141,7 +141,7 @@ func TestExtractServicesOnly(t *testing.T) {
 		{"an image outside services entirely", "x-only: &o\n  image: python:2.7\n", nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("compose.yml", []byte(tt.body))
+			ds, us, _ := Extract("compose.yml", []byte(tt.body))
 			if len(us) != 0 {
 				t.Fatalf("unreadable = %+v; want none", us)
 			}
@@ -166,7 +166,7 @@ func TestExtractOddShapes(t *testing.T) {
 		{"services is empty", "services:\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("compose.yml", []byte(tt.body))
+			ds, us, _ := Extract("compose.yml", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
@@ -183,7 +183,7 @@ func TestExtractAnchorRedefinedLater(t *testing.T) {
 		"  app:\n" +
 		"    image: *img\n" +
 		"x-new: &img python:3.13\n"
-	ds, us := Extract("compose.yml", []byte(body))
+	ds, us, _ := Extract("compose.yml", []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -201,8 +201,29 @@ func TestExtractAnchorRedefinedLater(t *testing.T) {
 // a stack overflow being fatal to whatever process meets it.
 func TestExtractSelfReferringMerge(t *testing.T) {
 	body := "x-loop: &loop [*loop]\nservices:\n  app:\n    <<: *loop\n    image: python:2.7\n"
-	ds, _ := Extract("compose.yml", []byte(body))
+	ds, _, _ := Extract("compose.yml", []byte(body))
 	if len(ds) != 1 || ds[0].Version != "2.7" {
 		t.Fatalf("declarations = %+v; want the image the service states itself", ds)
+	}
+}
+
+// A Compose file that is not YAML is set aside whole, and one that is YAML
+// and names no service is not. Both read nothing; only the first is a file
+// whose declarations this run never saw.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"not yaml", "\tthis: is: not: yaml\n  - [\n", decl.NotYAML},
+		{"no services in it", "name: demo\n", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract("compose.yml", []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
+		})
 	}
 }

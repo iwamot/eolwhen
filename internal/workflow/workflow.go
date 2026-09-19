@@ -100,13 +100,17 @@ func Matches(path string) bool {
 // Reading it as jobs rather than as every mapping in the file is what lets a
 // `${{ matrix.python-version }}` be answered: the versions it stands for are
 // in the same job's strategy.matrix, and a matrix is only the one job's.
-func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	parsed, skipped := yamlfile.Parse(data)
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	r := &reader{
 		file:     file,
 		declared: map[decl.Decl]bool{},
 		reported: map[decl.Unreadable]bool{},
 	}
-	for _, root := range yamlfile.Parse(data).Roots() {
+	for _, root := range parsed.Roots() {
 		jobs, ok := yamlfile.Find(root, "jobs")
 		if !ok {
 			continue
@@ -119,7 +123,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			r.job(job)
 		}
 	}
-	return r.ds, r.us
+	return r.ds, r.us, ""
 }
 
 type reader struct {

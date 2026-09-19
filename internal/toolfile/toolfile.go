@@ -33,10 +33,12 @@ func Matches(name string) bool {
 	return name == "mise.toml" || name == ".mise.toml" || name == ".tool-versions"
 }
 
-// Extract reads one tool list.
-func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+// Extract reads one tool list. A .tool-versions is read line by line and has
+// no parse to fail; a mise.toml is TOML and may not be TOML yet.
+func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
 	if filepath.Base(path) == ".tool-versions" {
-		return toolVersions(path, data)
+		ds, us := toolVersions(path, data)
+		return ds, us, ""
 	}
 	return miseToml(path, data)
 }
@@ -46,14 +48,17 @@ func Extract(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 // The file is parsed for what it says and then scanned for where it said it.
 // A version that cannot be located keeps the file without a line, which is
 // the worst the scan can do; it never changes what was read.
-func miseToml(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+func miseToml(path string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
 	var doc struct {
 		Tools map[string]toml.Primitive `toml:"tools"`
 	}
 	md, err := toml.Decode(string(data), &doc)
 	if err != nil {
-		// mise reports a broken config better than this tool can.
-		return nil, nil
+		// mise reports a broken config better than this tool can. The only
+		// way to get here is a document that is not TOML: [tools] is read
+		// as primitives, which take whatever shape the file gave them, so
+		// there is no mismatch for the decoder to refuse.
+		return nil, nil, decl.NotTOML
 	}
 	lines := lineOf(data)
 	var ds []decl.Decl
@@ -73,7 +78,7 @@ func miseToml(path string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			}
 		}
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // versionsOf reads the shapes a mise tool version takes: one string, a list

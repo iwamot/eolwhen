@@ -43,16 +43,23 @@ var skipped = map[string]bool{
 // Dir reads every file in dir, and below it, that an extractor recognizes.
 // Paths are reported relative to dir, so a row reads the same whether the
 // directory was named absolutely or as a dot.
-func Dir(dir string) ([]decl.Decl, []decl.Unreadable, error) {
+//
+// The third list is the files that were recognized and read nothing from,
+// because they do not parse or do not hold what they are read for. They are
+// what keeps a directory that declares nothing apart from one whose
+// declarations this run could not see, which are the same empty answer and
+// not the same thing to do about it.
+func Dir(dir string) ([]decl.Decl, []decl.Unreadable, []decl.Skipped, error) {
 	var ds []decl.Decl
 	var us []decl.Unreadable
+	var sk []decl.Skipped
 	// The directory a caller names may be a symlink, and WalkDir does not
 	// follow one, so it is resolved here: a checkout reached through a link
 	// is the checkout. Links met further down are left alone, which is what
 	// keeps a loop from being possible.
 	root, err := filepath.EvalSymlinks(filepath.Clean(dir))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Walking a cleaned root means every path below it is that root plus a
 	// separator plus the rest, so the part to print is a prefix away and
@@ -99,15 +106,19 @@ func Dir(dir string) ([]decl.Decl, []decl.Unreadable, error) {
 			us = append(us, unreadableAt(root, path, err))
 			return nil
 		}
-		newDs, newUs := extract(rel, data)
+		newDs, newUs, reason := extract(rel, data)
+		if reason != "" {
+			sk = append(sk, decl.Skipped{File: rel, Reason: reason})
+			return nil
+		}
 		ds = append(ds, newDs...)
 		us = append(us, newUs...)
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return ds, us, nil
+	return ds, us, sk, nil
 }
 
 // unreadableAt words a path the walk offered but could not open, so that a
@@ -123,7 +134,21 @@ func unreadableAt(root, path string, err error) decl.Unreadable {
 	return decl.Unreadable{Source: decl.Source{File: filepath.ToSlash(rel)}, Reason: reason}
 }
 
-type extractor func(file string, data []byte) ([]decl.Decl, []decl.Unreadable)
+// extractor reads one file. The last value is why it read nothing from the
+// file, empty when it read it, and a file it read nothing from yields no
+// declarations at all: half a file is not half a set of declarations.
+type extractor func(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string)
+
+// whole adapts an extractor that reads a file a line at a time. A Dockerfile,
+// a Gemfile and a .nvmrc have no document to parse, so there is no state the
+// file could be in that leaves the whole of it unread, and nothing for one of
+// them to set aside.
+func whole(f func(string, []byte) ([]decl.Decl, []decl.Unreadable)) extractor {
+	return func(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+		ds, us := f(file, data)
+		return ds, us, ""
+	}
+}
 
 // extractorFor picks the extractor for a path. Which extractor reads a file
 // is settled by where it sits and what it is called, which is what lets each
@@ -132,10 +157,10 @@ type extractor func(file string, data []byte) ([]decl.Decl, []decl.Unreadable)
 // because of where it lives.
 func extractorFor(path string) (extractor, bool) {
 	if _, ok := runtimefile.Product(filepath.Base(path)); ok {
-		return runtimefile.Extract, true
+		return whole(runtimefile.Extract), true
 	}
 	if dockerfile.Matches(filepath.Base(path)) {
-		return dockerfile.Extract, true
+		return whole(dockerfile.Extract), true
 	}
 	if compose.Matches(filepath.Base(path)) {
 		return compose.Extract, true
@@ -144,7 +169,7 @@ func extractorFor(path string) (extractor, bool) {
 		return toolfile.Extract, true
 	}
 	if gemfile.Matches(filepath.Base(path)) {
-		return gemfile.Extract, true
+		return whole(gemfile.Extract), true
 	}
 	if composerjson.Matches(filepath.Base(path)) {
 		return composerjson.Extract, true

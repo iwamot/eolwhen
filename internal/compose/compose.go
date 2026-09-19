@@ -37,10 +37,14 @@ func Matches(name string) bool {
 // with a merge key, so reading every mapping that has an image: would report
 // a template the file never applies, and would miss that the service which
 // does apply it overrode the image.
-func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	parsed, skipped := yamlfile.Parse(data)
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	var ds []decl.Decl
 	var us []decl.Unreadable
-	for _, root := range yamlfile.Parse(data).Roots() {
+	for _, root := range parsed.Roots() {
 		services, ok := yamlfile.Find(root, "services")
 		if !ok {
 			continue
@@ -55,7 +59,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			us = append(us, u...)
 		}
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // service reads one service's image. A service that declares nothing this

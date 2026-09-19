@@ -4,11 +4,20 @@ import (
 	"testing"
 
 	"github.com/goccy/go-yaml/ast"
+
+	"github.com/iwamot/eolwhen/internal/decl"
 )
+
+// parse is Parse where what the test is about is what was read, rather than
+// whether anything could be.
+func parse(data string) *File {
+	f, _ := Parse([]byte(data))
+	return f
+}
 
 func collect(data string) map[string][]string {
 	got := map[string][]string{}
-	Parse([]byte(data)).Walk(func(entries []Entry) {
+	parse(data).Walk(func(entries []Entry) {
 		for _, e := range entries {
 			if s, ok := e.Scalar(); ok {
 				got[e.Key] = append(got[e.Key], s)
@@ -76,19 +85,32 @@ func TestAnchors(t *testing.T) {
 }
 
 // TestWalkNotYAML: the tool that owns the file reports a broken one better
-// than this one can, so nothing comes back and nothing is said.
+// than this one can, so nothing comes back.
+//
+// An empty file walks no mappings either, and the two are not one answer:
+// one is a file whose declarations this run never saw, the other a file with
+// none to see.
 func TestWalkNotYAML(t *testing.T) {
-	for _, body := range []string{"\tthis: is: not: yaml\n  - [\n", ""} {
-		n := 0
-		Parse([]byte(body)).Walk(func([]Entry) { n++ })
-		if n != 0 {
-			t.Errorf("Walk(%q) visited %d mappings; want none", body, n)
-		}
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"not yaml", "\tthis: is: not: yaml\n  - [\n", decl.NotYAML},
+		{"empty", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f, skipped := Parse([]byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			n := 0
+			f.Walk(func([]Entry) { n++ })
+			if n != 0 {
+				t.Errorf("Walk visited %d mappings; want none", n)
+			}
+		})
 	}
 }
 
 func TestLineAndScalar(t *testing.T) {
-	Parse([]byte("a: one\nb: two\n")).Walk(func(entries []Entry) {
+	parse("a: one\nb: two\n").Walk(func(entries []Entry) {
 		e, ok := Find(entries, "b")
 		if !ok {
 			t.Fatal("b not found")
@@ -105,7 +127,7 @@ func TestLineAndScalar(t *testing.T) {
 // TestScalarOfAList: a value that is not a string is left to the caller,
 // which is how an image: or a runs-on: written as a list is noticed.
 func TestScalarOfAList(t *testing.T) {
-	Parse([]byte("a: [1, 2]\n")).Walk(func(entries []Entry) {
+	parse("a: [1, 2]\n").Walk(func(entries []Entry) {
 		if _, ok := entries[0].Scalar(); ok {
 			t.Error("a list should not read as a scalar")
 		}
@@ -134,7 +156,7 @@ func TestUnresolvedAlias(t *testing.T) {
 // TestMerge applies a merge key the way YAML does: what the mapping says
 // itself wins over what the merge brought in.
 func TestMerge(t *testing.T) {
-	f := Parse([]byte("x-d: &d\n  image: python:2.7\n  restart: always\nsvc:\n  <<: *d\n  image: python:3.13\n"))
+	f := parse("x-d: &d\n  image: python:2.7\n  restart: always\nsvc:\n  <<: *d\n  image: python:3.13\n")
 	roots := f.Roots()
 	if len(roots) != 1 {
 		t.Fatalf("Roots = %d; want 1", len(roots))
@@ -163,7 +185,7 @@ func TestMerge(t *testing.T) {
 
 // TestMergeSequence: several templates merged at once, the first winning.
 func TestMergeSequence(t *testing.T) {
-	f := Parse([]byte("a: &a\n  image: python:2.7\nb: &b\n  image: python:3.13\nsvc:\n  <<: [*a, *b]\n"))
+	f := parse("a: &a\n  image: python:2.7\nb: &b\n  image: python:3.13\nsvc:\n  <<: [*a, *b]\n")
 	svc, _ := Find(f.Roots()[0], "svc")
 	entries, _ := svc.Mapping()
 	img, _ := Find(entries, "image")
@@ -190,7 +212,7 @@ func TestCyclesStillRead(t *testing.T) {
 			"a: &x [*x]\nsvc:\n  <<: *x\n  image: python:2.7\n", "image", "python:2.7"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := Parse([]byte(tt.body))
+			f := parse(tt.body)
 			svc, ok := Find(f.Roots()[0], "svc")
 			if !ok {
 				t.Fatal("svc not found")
@@ -211,7 +233,7 @@ func TestCyclesStillRead(t *testing.T) {
 // under, and a single value is not a list, which is how a caller reading
 // runs-on tells the two shapes apart.
 func TestSequence(t *testing.T) {
-	f := Parse([]byte("runs-on: [self-hosted, macos-13]\none: macos-13\n"))
+	f := parse("runs-on: [self-hosted, macos-13]\none: macos-13\n")
 	root := f.Roots()[0]
 	list, _ := Find(root, "runs-on")
 	items, ok := list.Sequence()
@@ -243,7 +265,7 @@ func TestSequence(t *testing.T) {
 // parser's current behaviour, so the loop is built here by hand, out of a
 // real alias node, and the guard is exercised on it.
 func TestAliasChainEnds(t *testing.T) {
-	f := Parse([]byte("anchor: &x 1\nuse: *x\n"))
+	f := parse("anchor: &x 1\nuse: *x\n")
 	use, ok := Find(f.Roots()[0], "use")
 	if !ok {
 		t.Fatal("use not found")
@@ -295,7 +317,7 @@ func TestForwardReference(t *testing.T) {
 // TestAnchorsDoNotCrossDocuments: a name defined in one document says
 // nothing about the same name in another.
 func TestAnchorsDoNotCrossDocuments(t *testing.T) {
-	f := Parse([]byte("---\none: &img python:2.7\nuse: *img\n---\ntwo: *img\n"))
+	f := parse("---\none: &img python:2.7\nuse: *img\n---\ntwo: *img\n")
 	roots := f.Roots()
 	if len(roots) != 2 {
 		t.Fatalf("Roots = %d; want 2", len(roots))
@@ -313,7 +335,7 @@ func TestAnchorsDoNotCrossDocuments(t *testing.T) {
 // TestRedefinitionKeepsTheReferenceLine: the row points at where the version
 // was referred from, which is the line to go and change.
 func TestRedefinitionKeepsTheReferenceLine(t *testing.T) {
-	f := Parse([]byte("old: &img python:2.7\nuse: *img\nnew: &img python:3.13\n"))
+	f := parse("old: &img python:2.7\nuse: *img\nnew: &img python:3.13\n")
 	use, _ := Find(f.Roots()[0], "use")
 	if use.Line() != 2 {
 		t.Errorf("Line = %d; want 2, the alias", use.Line())
@@ -325,7 +347,7 @@ func TestRedefinitionKeepsTheReferenceLine(t *testing.T) {
 // the guard the descent would come round to where it started.
 func TestWalkStopsAtANodeItIsInside(t *testing.T) {
 	n := 0
-	Parse([]byte("a: &x\n  b: *x\n  image: python:2.7\n")).Walk(func(entries []Entry) {
+	parse("a: &x\n  b: *x\n  image: python:2.7\n").Walk(func(entries []Entry) {
 		n++
 		if n > 100 {
 			t.Fatal("the walk came round again")

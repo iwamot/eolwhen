@@ -33,7 +33,7 @@ type want struct {
 
 func check(t *testing.T, file, body string, ws ...want) {
 	t.Helper()
-	ds, us := Extract(file, []byte(body))
+	ds, us, _ := Extract(file, []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -97,7 +97,7 @@ func TestBackendKeys(t *testing.T) {
 		// all. Both are passed over.
 		"\"vfox:nodejs\" = \"24.0.0\"\n" +
 		"\"http:something\" = \"1.0.0\"\n"
-	ds, us := Extract("mise.toml", []byte(body))
+	ds, us, _ := Extract("mise.toml", []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -124,7 +124,7 @@ func TestBackendKeys(t *testing.T) {
 // so what the catalog knows about the name can still decide whether it is
 // worth a word.
 func TestBackendKeyWithNoVersion(t *testing.T) {
-	ds, us := Extract("mise.toml", []byte("[tools]\n\"npm:typescript\" = \"latest\"\n"))
+	ds, us, _ := Extract("mise.toml", []byte("[tools]\n\"npm:typescript\" = \"latest\"\n"))
 	want := decl.Unreadable{
 		Source:    decl.Source{File: "mise.toml", Line: 2},
 		Ecosystem: "npm",
@@ -206,7 +206,7 @@ func TestReported(t *testing.T) {
 		{"a tool nobody dates", "mise.toml", "[tools]\njq = \"latest\"\n", "jq", "latest", "names a moving target, not a version"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(tt.file, []byte(tt.body))
+			ds, us, _ := Extract(tt.file, []byte(tt.body))
 			if len(ds) != 0 {
 				t.Fatalf("declarations = %+v; want none", ds)
 			}
@@ -232,7 +232,7 @@ func TestNothing(t *testing.T) {
 		{"a backend in tool-versions", ".tool-versions", "npm:typescript 5.9.0\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(tt.file, []byte(tt.body))
+			ds, us, _ := Extract(tt.file, []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
@@ -241,8 +241,30 @@ func TestNothing(t *testing.T) {
 }
 
 func TestSourceIsThePath(t *testing.T) {
-	ds, _ := Extract("tools/mise.toml", []byte("[tools]\ngo = \"1.27.1\"\n"))
+	ds, _, _ := Extract("tools/mise.toml", []byte("[tools]\ngo = \"1.27.1\"\n"))
 	if len(ds) != 1 || ds[0].Source != (decl.Source{File: "tools/mise.toml", Line: 2}) {
 		t.Errorf("Source = %+v; want tools/mise.toml:2", ds)
+	}
+}
+
+// A mise.toml that is not TOML is set aside whole. A .tool-versions is read
+// a line at a time and has no document to fail, so nothing it holds sets it
+// aside.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, file, body, skipped string }{
+		{"not toml", "mise.toml", "[tools\ngo = \n", decl.NotTOML},
+		{"no tools table", "mise.toml", "min_version = \"2026.9.5\"\n", ""},
+		{"empty", "mise.toml", "", ""},
+		{"a tool-versions holding nonsense", ".tool-versions", "[tools\n", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract(tt.file, []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
+		})
 	}
 }

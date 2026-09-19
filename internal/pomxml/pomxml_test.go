@@ -31,7 +31,7 @@ type want struct {
 
 func check(t *testing.T, body string, ws ...want) {
 	t.Helper()
-	ds, _ := Extract("pom.xml", []byte(body))
+	ds, _, _ := Extract("pom.xml", []byte(body))
 	if len(ds) != len(ws) {
 		t.Fatalf("declarations = %+v; want %d", ds, len(ws))
 	}
@@ -136,7 +136,7 @@ func TestExtractSetsAsideWhatThisFileDoesNotSettle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := "<project>\n  <dependencies>\n    <dependency>\n      <groupId>g</groupId>\n" +
 				"      <artifactId>a</artifactId>\n      " + tt.version + "\n    </dependency>\n  </dependencies>\n</project>\n"
-			ds, us := Extract("pom.xml", []byte(body))
+			ds, us, _ := Extract("pom.xml", []byte(body))
 			if len(ds) != 0 {
 				t.Fatalf("declarations = %+v; want none", ds)
 			}
@@ -167,7 +167,7 @@ func TestExtractReadsNothingElse(t *testing.T) {
 		{"a file cut short inside an element", "<project>\n  <dependencies>\n    <dependency>\n      <groupId>g"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract("pom.xml", []byte(tt.body))
+			ds, us, _ := Extract("pom.xml", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v, %+v; want neither", ds, us)
 			}
@@ -188,4 +188,28 @@ func TestExtractReadsAPropertySetBelow(t *testing.T) {
 	check(t, "<project>\n  <dependencies>\n    <dependency>\n      <groupId>g</groupId>\n      <artifactId>a</artifactId>\n"+
 		"      <version>${v}</version>\n    </dependency>\n  </dependencies>\n  <properties>\n    <v>1.2.3</v>\n  </properties>\n</project>\n",
 		want{"g/a", "1.2.3", 6})
+}
+
+// Markup that does not parse sets the POM aside whole, and the dependencies
+// read before the decoder stopped go with it.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	whole := "<project>\n  <dependencies>\n    <dependency>\n      <groupId>g</groupId>\n      <artifactId>a</artifactId>\n      <version>1.0</version>\n    </dependency>\n"
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"markup that does not parse", "<project><dependencies><dependency></project>", decl.NotXML},
+		{"a dependency the file never closes", "<project>\n  <dependencies>\n    <dependency>\n      <groupId>g<X></groupId>\n", decl.NotXML},
+		// The first dependency is whole and the file is not, and both go.
+		{"cut short after a whole dependency", whole, decl.NotXML},
+		{"a POM declaring nothing", "<project>\n  <modelVersion>4.0.0</modelVersion>\n</project>\n", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract("pom.xml", []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
+			}
+		})
+	}
 }

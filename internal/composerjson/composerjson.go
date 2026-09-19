@@ -35,13 +35,19 @@ var required = []string{"require", "require-dev"}
 
 // Extract reads every package a composer.json requires.
 //
-// A file that does not parse is skipped in silence, as a Compose file that
-// is not YAML yet is: the tool that owns it reports that better than this
-// one can, and a file mid-edit is not a declaration that could not be read.
-func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
+// A file that does not parse is read as nothing at all, and whole: half a
+// file is not half a set of declarations, and the tool that owns it reports
+// a broken one better than this one can. It earns no complaint, a file
+// mid-edit not being a declaration that could not be read, and comes back as
+// the reason it was set aside, which --verbose and --json account for.
+func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) {
+	members, skipped := jsonfile.Read(data, required, nil)
+	if skipped != "" {
+		return nil, nil, skipped
+	}
 	var ds []decl.Decl
 	var us []decl.Unreadable
-	for _, m := range jsonfile.Read(data, required, nil) {
+	for _, m := range members {
 		// Composer requires a package to be named in lower case, and a purl
 		// spells it the same way, so that is the name to look up.
 		name := strings.ToLower(m.Name)
@@ -76,7 +82,7 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			Source:    src,
 		})
 	}
-	return ds, us
+	return ds, us, ""
 }
 
 // reason says why a requirement naming no one version was set aside, which

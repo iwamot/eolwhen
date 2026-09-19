@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"slices"
+
+	"github.com/iwamot/eolwhen/internal/decl"
 )
 
 // Member is one member of the document: which top-level member it came from,
@@ -37,7 +39,12 @@ type Member struct {
 // same answer an unparsable Compose file or mise.toml gets: half a file is
 // not half a set of declarations, and the tool that owns it says what is
 // wrong with it better than this one can.
-func Read(data []byte, objects, texts []string) []Member {
+//
+// skipped is why nothing was read, and empty when the document was read. It
+// is what keeps a manifest that is not JSON yet apart from one that is JSON
+// and declares nothing, which are the same empty list and not the same
+// answer.
+func Read(data []byte, objects, texts []string) (members []Member, skipped string) {
 	// The walk below stops where the top-level object closes and never
 	// looks past it, so what follows a document goes unseen, and a
 	// document that runs out mid-object leaves it to the decoder whether
@@ -47,11 +54,14 @@ func Read(data []byte, objects, texts []string) []Member {
 	// below reads an error from the decoder: every token is there, and
 	// what is left to find is the shape a member holds.
 	if !json.Valid(data) {
-		return nil
+		return nil, decl.NotJSON
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
+	// A document that is whole and is not an object is JSON and is still
+	// not a manifest, which is the other way to hold nothing this reads
+	// for.
 	if t, _ := dec.Token(); t != json.Delim('{') {
-		return nil
+		return nil, decl.Shape
 	}
 	var out []Member
 	for dec.More() {
@@ -66,11 +76,11 @@ func Read(data []byte, objects, texts []string) []Member {
 		}
 		read, ok := member(dec, data, name, isObject)
 		if !ok {
-			return nil
+			return nil, decl.Shape
 		}
 		out = append(out, read...)
 	}
-	return out
+	return out, ""
 }
 
 // member reads one wanted top-level member. ok is false when the member did

@@ -100,7 +100,7 @@ func TestExtractReadsAPoetryTable(t *testing.T) {
 // An entry naming no version of its own is set aside like any requirement
 // that leaves the version to an install.
 func TestExtractSetsAsidePoetryEntriesWithNoVersion(t *testing.T) {
-	ds, us := Extract("pyproject.toml", []byte(`[tool.poetry.dependencies]
+	ds, us, _ := Extract("pyproject.toml", []byte(`[tool.poetry.dependencies]
 mylib = {git = "https://example.com/mylib.git"}
 six = [{version = "^1.0", python = "<3.10"}, {version = "^2.0", python = ">=3.10"}]
 `))

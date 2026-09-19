@@ -37,7 +37,7 @@ type want struct {
 
 func check(t *testing.T, body string, ws ...want) {
 	t.Helper()
-	ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+	ds, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
 	if len(us) != 0 {
 		t.Fatalf("unreadable = %+v; want none", us)
 	}
@@ -177,7 +177,7 @@ func TestJavaWithoutADistribution(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			body := "jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@v4\n        with:\n" + tt.with
-			ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("= %+v, %+v; want neither", ds, us)
 			}
@@ -228,7 +228,7 @@ func TestReported(t *testing.T) {
 			"^1.21", "is not a version"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(tt.body))
 			if len(ds) != 0 {
 				t.Fatalf("declarations = %+v; want none", ds)
 			}
@@ -269,7 +269,7 @@ func TestNothing(t *testing.T) {
 		{"not YAML", "\tthis: is: not: yaml\n  - [\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(tt.body))
 			if len(ds) != 0 || len(us) != 0 {
 				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
@@ -278,7 +278,7 @@ func TestNothing(t *testing.T) {
 }
 
 func TestSourceIsTheWorkflow(t *testing.T) {
-	ds, _ := Extract(".github/workflows/release.yml", []byte("jobs:\n  a:\n    runs-on: macos-13\n"))
+	ds, _, _ := Extract(".github/workflows/release.yml", []byte("jobs:\n  a:\n    runs-on: macos-13\n"))
 	if len(ds) != 1 || ds[0].Source != (decl.Source{File: ".github/workflows/release.yml", Line: 3}) {
 		t.Errorf("Source = %+v; want release.yml:3", ds)
 	}
@@ -288,7 +288,7 @@ func TestSourceIsTheWorkflow(t *testing.T) {
 // keeps it beside its reason. Both together keep it on one line.
 func TestLongExpressionIsCut(t *testing.T) {
 	long := "${{ github.repository_owner == 'discourse' && 'cdck-linux-16-core-ubuntu-22' || 'ubuntu-latest' }}"
-	ds, us := Extract(".github/workflows/ci.yml", []byte("jobs:\n  a:\n    runs-on: \""+long+"\"\n"))
+	ds, us, _ := Extract(".github/workflows/ci.yml", []byte("jobs:\n  a:\n    runs-on: \""+long+"\"\n"))
 	if len(ds) != 0 || len(us) != 1 {
 		t.Fatalf("Extract = %+v, %+v", ds, us)
 	}
@@ -317,7 +317,7 @@ func TestAliasedVersion(t *testing.T) {
 		"      - uses: actions/setup-python@v5\n" +
 		"        with:\n" +
 		"          python-version: *python\n"
-	ds, _ := Extract(".github/workflows/ci.yml", []byte(body))
+	ds, _, _ := Extract(".github/workflows/ci.yml", []byte(body))
 	var python []decl.Decl
 	for _, d := range ds {
 		if d.Product == "python" {
@@ -342,7 +342,7 @@ func TestSelfReferringRunsOn(t *testing.T) {
 		"jobs:\n  test:\n    runs-on: &runner [*runner]\n",
 		"jobs:\n  test:\n    runs-on: &runner {labels: *runner}\n",
 	} {
-		ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+		ds, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
 		if len(ds) != 0 || len(us) != 0 {
 			t.Errorf("Extract(%q) = %+v, %+v; want nothing", body, ds, us)
 		}
@@ -426,7 +426,7 @@ func TestMatrix(t *testing.T) {
 			"  a:\n    strategy:\n      matrix:\n        v: ['20']\n" +
 			"    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.v }}\n" +
 			"  b:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.v }}\n"
-		ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+		ds, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
 		if len(ds) != 1 || ds[0].Product != "node" || ds[0].Version != "20" {
 			t.Fatalf("declarations = %+v; want node 20 alone", ds)
 		}
@@ -437,7 +437,7 @@ func TestMatrix(t *testing.T) {
 	// A moving value in a matrix is moving wherever it is written.
 	t.Run("a moving value", func(t *testing.T) {
 		body := "jobs:\n  a:\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n    runs-on: ${{ matrix.os }}\n"
-		ds, us := Extract(".github/workflows/ci.yml", []byte(body))
+		ds, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
 		if len(ds) != 0 {
 			t.Fatalf("declarations = %+v; want none", ds)
 		}
@@ -458,7 +458,7 @@ func TestMovingReported(t *testing.T) {
 		{"nvm's newest lts", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: lts/*\n", "lts/*"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(tt.body))
 			if len(ds) != 0 {
 				t.Fatalf("declarations = %+v; want none", ds)
 			}
@@ -486,7 +486,7 @@ func TestMatrixShapes(t *testing.T) {
 		{"a document that is not a workflow", "on: push\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ds, us := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(tt.body))
 			for _, d := range ds {
 				if d.Version != "macos-13" {
 					t.Errorf("declarations = %+v; want nothing but the job's own runner", ds)
@@ -494,6 +494,26 @@ func TestMatrixShapes(t *testing.T) {
 			}
 			if len(us) != 0 {
 				t.Errorf("unreadable = %+v; want none", us)
+			}
+		})
+	}
+}
+
+// A workflow that is not YAML is set aside whole, and one that is YAML and
+// holds no job is not.
+func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
+	for _, tt := range []struct{ name, body, skipped string }{
+		{"not yaml", "\tthis: is: not: yaml\n  - [\n", decl.NotYAML},
+		{"no jobs in it", "name: nothing\n", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, skipped := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			if skipped != tt.skipped {
+				t.Errorf("skipped = %q; want %q", skipped, tt.skipped)
+			}
+			if len(ds) != 0 || len(us) != 0 {
+				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
 		})
 	}

@@ -13,6 +13,8 @@ import (
 
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
+
+	"github.com/iwamot/eolwhen/internal/decl"
 )
 
 // aliasDepth is how far a chain of aliases is followed before it is given up
@@ -46,11 +48,15 @@ type document struct {
 // nothing in it: the tool that owns the file reports a broken one better
 // than this one can, and a file mid-edit is not a declaration that could not
 // be read.
-func Parse(data []byte) *File {
-	f := &File{}
+//
+// skipped is why nothing was read, and empty when the file was read. A file
+// that is YAML and holds no service and no workflow step yields an empty
+// File too, and the two are not the same answer.
+func Parse(data []byte) (f *File, skipped string) {
+	f = &File{}
 	parsed, err := parser.ParseBytes(data, 0)
 	if err != nil {
-		return f
+		return f, decl.NotYAML
 	}
 	for _, src := range parsed.Docs {
 		if src.Body == nil {
@@ -65,7 +71,7 @@ func Parse(data []byte) *File {
 		}
 		f.docs = append(f.docs, doc)
 	}
-	return f
+	return f, ""
 }
 
 // collectAnchors records every anchor in the tree, with where it was

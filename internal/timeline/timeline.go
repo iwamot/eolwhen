@@ -234,6 +234,13 @@ type Report struct {
 	// reader has to ask for, so unlike the three above they are always
 	// filled.
 	Ended []Undated
+	// Skipped are the files that were recognized and read nothing from.
+	// Every other list here holds declarations; this one holds the files
+	// whose declarations were never reached, which is what says an empty
+	// answer is short rather than complete. Like Ended it is always filled,
+	// because the count of it is said in words whether or not it was asked
+	// for.
+	Skipped []decl.Skipped
 }
 
 type document struct {
@@ -245,6 +252,16 @@ type document struct {
 	Untracked  []untracked  `json:"untracked"`
 	Undated    []undated    `json:"undated"`
 	Ended      []undated    `json:"ended"`
+	Skipped    []skipped    `json:"skipped"`
+}
+
+// skipped names a file that was read nothing from, and why. It carries no
+// line: the whole of the file was set aside, and the line a parser stopped
+// on is not where the reader has to go. The reasons are the closed set decl
+// declares, so a caller tells one from another without reading the prose.
+type skipped struct {
+	Source string `json:"source"`
+	Reason string `json:"reason"`
 }
 
 type untracked struct {
@@ -310,6 +327,7 @@ func JSON(r Report, now time.Time) string {
 		Untracked:  []untracked{},
 		Undated:    []undated{},
 		Ended:      []undated{},
+		Skipped:    []skipped{},
 	}
 	for _, f := range r.Findings {
 		doc.Findings = append(doc.Findings, entry{
@@ -339,6 +357,9 @@ func JSON(r Report, now time.Time) string {
 	}
 	for _, u := range r.Ended {
 		doc.Ended = append(doc.Ended, cycleOf(u))
+	}
+	for _, s := range r.Skipped {
+		doc.Skipped = append(doc.Skipped, skipped{Source: s.File, Reason: s.Reason})
 	}
 	// The document holds only strings, numbers, and booleans, so Marshal
 	// cannot fail.

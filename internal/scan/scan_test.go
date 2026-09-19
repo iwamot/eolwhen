@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iwamot/eolwhen/internal/decl"
 )
 
 func write(t *testing.T, dir, name, body string) {
@@ -46,7 +48,7 @@ func TestDir(t *testing.T) {
 	write(t, dir, "node_modules/left-pad/.nvmrc", "8.0.0\n")
 	write(t, dir, "vendor/foo/Dockerfile", "FROM centos:6\n")
 
-	ds, us, err := Dir(dir)
+	ds, us, _, err := Dir(dir)
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
@@ -96,7 +98,7 @@ func TestDir(t *testing.T) {
 // TestDirEmpty is the common case for a directory that declares nothing, and
 // it is not an error.
 func TestDirEmpty(t *testing.T) {
-	ds, us, err := Dir(t.TempDir())
+	ds, us, _, err := Dir(t.TempDir())
 	if err != nil || len(ds) != 0 || len(us) != 0 {
 		t.Errorf("Dir = %+v, %+v, %v; want nothing and no error", ds, us, err)
 	}
@@ -107,7 +109,7 @@ func TestDirEmpty(t *testing.T) {
 func TestDirSkipsItselfByName(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "vendor")
 	write(t, dir, ".nvmrc", "14.19.0\n")
-	ds, _, err := Dir(dir)
+	ds, _, _, err := Dir(dir)
 	if err != nil || len(ds) != 1 {
 		t.Errorf("Dir = %+v, %v; want the one declaration", ds, err)
 	}
@@ -118,14 +120,14 @@ func TestDirSkipsItselfByName(t *testing.T) {
 func TestDirNameTakenByADirectory(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, ".nvmrc/notes.txt", "nothing here\n")
-	ds, us, err := Dir(dir)
+	ds, us, _, err := Dir(dir)
 	if err != nil || len(ds) != 0 || len(us) != 0 {
 		t.Errorf("Dir = %+v, %+v, %v; want nothing and no error", ds, us, err)
 	}
 }
 
 func TestDirMissing(t *testing.T) {
-	if _, _, err := Dir(filepath.Join(t.TempDir(), "nope")); err == nil {
+	if _, _, _, err := Dir(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Error("want an error for a directory that is not there")
 	}
 }
@@ -140,7 +142,7 @@ func TestDirUnreadableFile(t *testing.T) {
 		t.Skipf("cannot lock a file here: %v", err)
 	}
 	write(t, dir, ".python-version", "2.7.18\n")
-	ds, us, err := Dir(dir)
+	ds, us, _, err := Dir(dir)
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
@@ -168,7 +170,7 @@ func TestDirUnreadableSubdirectory(t *testing.T) {
 		t.Skipf("cannot lock a directory here: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
-	ds, us, err := Dir(dir)
+	ds, us, _, err := Dir(dir)
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
@@ -193,7 +195,7 @@ func TestDirFindsWorkflowsWhateverTheSeparator(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: '2.7'\n")
-	ds, _, err := Dir(dir)
+	ds, _, _, err := Dir(dir)
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
@@ -219,11 +221,11 @@ func TestDirThroughASymlink(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	direct, _, err := Dir(real)
+	direct, _, _, err := Dir(real)
 	if err != nil {
 		t.Fatalf("Dir(real): %v", err)
 	}
-	through, _, err := Dir(link)
+	through, _, _, err := Dir(link)
 	if err != nil {
 		t.Fatalf("Dir(link): %v", err)
 	}
@@ -243,7 +245,7 @@ func TestDirBrokenSymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(base, "gone"), link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if _, _, err := Dir(link); err == nil {
+	if _, _, _, err := Dir(link); err == nil {
 		t.Error("want an error for a link to nothing")
 	}
 }
@@ -263,7 +265,7 @@ func TestDirLeavesALinkAlone(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	write(t, dir, ".nvmrc", "14.19.0\n")
-	ds, us, err := Dir(dir)
+	ds, us, _, err := Dir(dir)
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
@@ -286,8 +288,55 @@ func TestDirUnreadableRoot(t *testing.T) {
 		t.Skipf("cannot lock a directory here: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
-	ds, _, err := Dir(root)
+	ds, _, _, err := Dir(root)
 	if err == nil {
 		t.Skipf("the directory was readable anyway (running as root?): %+v", ds)
+	}
+}
+
+// A file that does not parse is named apart from what was read, and the
+// files beside it are read as they would have been on their own: a
+// directory is not all or nothing, and neither is its answer.
+func TestDirSetsAsideWhatItCannotParse(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, ".nvmrc", "18.20.4\n")
+	write(t, dir, "compose.yml", "\tthis: is: not: yaml\n  - [\n")
+	write(t, dir, "package.json", "{\"dependencies\": {\n")
+
+	ds, us, sk, err := Dir(dir)
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if len(ds) != 1 || ds[0].Version != "18.20.4" {
+		t.Fatalf("declarations = %+v; want the one the .nvmrc holds", ds)
+	}
+	if len(us) != 0 {
+		t.Errorf("unreadable = %+v; want none: a file nobody could parse is not a line to go and look at", us)
+	}
+	want := []decl.Skipped{
+		{File: "compose.yml", Reason: decl.NotYAML},
+		{File: "package.json", Reason: decl.NotJSON},
+	}
+	if len(sk) != len(want) {
+		t.Fatalf("skipped = %+v; want %+v", sk, want)
+	}
+	for i, w := range want {
+		if sk[i] != w {
+			t.Errorf("skipped[%d] = %+v; want %+v", i, sk[i], w)
+		}
+	}
+}
+
+// A directory whose recognized files all parse says nothing was set aside,
+// which is what makes an empty answer a complete one.
+func TestDirSetsAsideNothingItCanParse(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "package.json", "{\"name\": \"demo\"}\n")
+	_, _, sk, err := Dir(dir)
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if len(sk) != 0 {
+		t.Errorf("skipped = %+v; want none", sk)
 	}
 }
