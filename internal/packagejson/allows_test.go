@@ -26,6 +26,12 @@ func TestAllows(t *testing.T) {
 		{">=4 <6", "4", "6"},
 		{">=4.0.0 <5.0.0", "4.0.0", "5.0.0"},
 		{"<=3.4", "", "3.5"},
+		// A `>` against a version npm leaves unfinished clears the line it
+		// names, so >18 starts at 19 rather than at 18. Written out in
+		// full it clears one version, which no cycle turns on.
+		{">18 <20", "19", "20"},
+		{">18.1 <20", "18.2", "20"},
+		{">18.1.0 <20", "18.1.0", "20"},
 		// An operator may be written away from its version.
 		{">= 4 < 6", "4", "6"},
 		{"^ 12", "12", "13"},

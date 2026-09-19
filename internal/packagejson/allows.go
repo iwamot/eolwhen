@@ -74,6 +74,17 @@ func allows(requirement string) (span.Span, bool) {
 		case "^":
 			ceiling, _ := span.AfterCompatible(v)
 			s = s.AtLeast(v).Under(ceiling)
+		case ">":
+			// A version npm leaves unfinished names a line rather than a
+			// version, and a `>` in front of one excludes the whole line:
+			// >18 admits nothing below 19, and >18.1 nothing below 18.2.
+			// Written out in full it excludes one version, which is the
+			// single version Narrow reads as no difference at all.
+			floor := v
+			if strings.Count(v, ".") < 2 {
+				floor, _ = span.Next(v)
+			}
+			s = s.AtLeast(floor)
 		default:
 			// Every operator split leaves here is one Narrow reads, and the
 			// version it is given has already been found to be numbers, so

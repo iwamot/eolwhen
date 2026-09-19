@@ -56,7 +56,10 @@ func (s Span) Under(v string) Span {
 //
 // A bound that excludes its own version and one that admits it differ by a
 // single version, which is never the version that decides a cycle, so `>`
-// is read as `>=`.
+// is read as `>=`. That holds where a version left unfinished is padded
+// with zeros. A file that reads one as the line of versions it names —
+// npm, where `>18` clears the whole of 18 — excludes a line rather than a
+// version, and works that out before it gets here.
 func (s Span) Narrow(op, v string) (Span, bool) {
 	switch op {
 	case "", "=":
