@@ -109,6 +109,25 @@ eolwhen: no version declarations in ../a-repo-mid-edit
 eolwhen: compose.yml: not YAML, so nothing in it was read
 ```
 
+Rows say what to change; they do not say how the tool got there. A name may be the catalog's own, an alias it lists, a package name upstream publishes for a registry, a Docker Hub repository, or a codename that names the software and the version at once — and a date may be the cycle's own or one carried over. `--verbose` says which, for every row it printed, and ends each line with the product's page as endoflife.date publishes it, read from the catalog rather than built out of the name:
+
+```
+$ eolwhen --verbose
+eolwhen: compose.yml:9: 3.2 is redis <7.2, matched by name; no cycle covers it, so the date is the day 7.2 ended, which support for anything older had run out by — https://endoflife.date/redis
+eolwhen: .nvmrc:1: 22.11.0 is nodejs 22, matched by an alias endoflife.date lists; the date is that cycle's own — https://endoflife.date/nodejs
+-258d  2026-01-01  redis <7.2  compose.yml:9
++226d  2027-04-30  nodejs 22   .nvmrc:1
+```
+
+Every row is about a version a file declares, which is not what a directory runs on. A `go.mod` saying `go 1.16` is the oldest Go that module promises to work with: since Go 1.21 the go command fetches a newer toolchain when the one to hand is older, and a `toolchain` directive in the same file may name one outright. That directive is not read, and the two are not reconciled — which toolchain a build picks up is settled where the build runs.
+
+```
+$ eolwhen
+-1650d  2022-03-15  go 1.16  go.mod:3
+```
+
+A module still promising to work with a Go that lost support in 2022 is worth going and changing. It is not a claim that anything is being built with Go 1.16.
+
 A file set aside says the answer may be short of what the directory declares; it says nothing about whether anything there is out of support. An `eolwhen` that printed no row and counted two unread files has found no expiry and has not looked everywhere either, which are two different things to do next.
 
 The exit code is the answer, so a check can be one line. This one fails the job when something has already expired, passes when only future dates were found, and fails when the run could not answer at all — a usage error or an unreachable endoflife.date:
@@ -124,7 +143,7 @@ eolwhen --json > eol.json || [ $? = 2 ]
 jq -e '.skipped | length == 0' eol.json
 ```
 
-The same answer as JSON, with one entry per declaration rather than one per cycle, and `cycle` reading `<4.0` where the version predates everything endoflife.date tracks: the table folds them for reading, and a caller reading the document wants each place as its own record. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, `ended` holds the cycles upstream calls out of support without publishing a day, `skipped` holds the files that were recognized and read nothing from, and `moving`, `untracked` and `undated` are filled when `--verbose` asks for the declarations that had no date to place — lines that follow the newest release, software endoflife.date has no policy for, and cycles it has not dated yet.
+The same answer as JSON, with one entry per declaration rather than one per cycle, and `cycle` reading `<4.0` where the version predates everything endoflife.date tracks: the table folds them for reading, and a caller reading the document wants each place as its own record. Each entry also carries what its row was worked out from: `version` is the version string the file wrote, which the cycle no longer shows; `matched` is `name`, `alias`, `package`, `image` or `codename`; `dated` is `cycle` when the day is that cycle's own and `predates` when it was carried over from the oldest cycle tracked; `link` is the product's page. Read `dated` rather than the `<` the cycle name carries — Go writes that character escaped, so a caller looking for it in the document finds `\u003c` or nothing at all. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, `ended` holds the cycles upstream calls out of support without publishing a day, `skipped` holds the files that were recognized and read nothing from, and `moving`, `untracked` and `undated` are filled when `--verbose` asks for the declarations that had no date to place — lines that follow the newest release, software endoflife.date has no policy for, and cycles it has not dated yet.
 
 ```
 $ eolwhen --json
@@ -134,9 +153,13 @@ $ eolwhen --json
     {
       "product": "python",
       "cycle": "2.7",
+      "version": "2.7.18",
       "eol": "2020-01-01",
       "days": -2450,
       "past": true,
+      "matched": "name",
+      "dated": "cycle",
+      "link": "https://endoflife.date/python",
       "source": ".python-version:1"
     }
   ],
@@ -169,7 +192,7 @@ To cover several directories, loop over them in the shell. `eolwhen` reads one.
 `eolwhen --instructions` prints the paragraph to drop into `CLAUDE.md`, `AGENTS.md`, or whichever file your agent reads:
 
 ```markdown
-To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it. A recognized file that does not parse is read as nothing at all, whole rather than in part; when there is no row the `eolwhen:` line counts those files, `--verbose` names each one with a short reason and `--json` carries them in `skipped`, so an empty answer always says whether it is a complete one.
+To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it. A recognized file that does not parse is read as nothing at all, whole rather than in part; when there is no row the `eolwhen:` line counts those files, `--verbose` names each one with a short reason and `--json` carries them in `skipped`, so an empty answer always says whether it is a complete one. A row says what to change and not how it was reached, so `--verbose` explains each printed row — the version the file wrote, how the name was answered, whether the date is that cycle's own, and the product's endoflife.date page — and `--json` carries the same as the `version`, `matched`, `dated` and `link` fields of each entry; `dated` is `predates` where the declared version is older than every cycle endoflife.date tracks, the date then being the day the oldest one ended rather than a day published for what was declared. Every row is about a version a file declares rather than about what is running: a `go 1.16` in a go.mod is the oldest Go that module promises to work with, and the build may fetch a newer toolchain.
 ```
 
 ## Reference
@@ -204,10 +227,10 @@ Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
   --json          print JSON instead of the table, one entry per declaration
-  --verbose       also name the declarations that had no date to place:
-                  software endoflife.date does not track, cycles it has not
-                  dated yet, and lines that follow the newest release; and
-                  the files that were recognized and read nothing from
+  --verbose       also say how each printed row was reached, and name what
+                  got no row: software endoflife.date does not track, cycles
+                  it has not dated yet, lines that follow the newest
+                  release, and files that were read nothing from
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file

@@ -63,10 +63,10 @@ Options:
   --within DUR    only show what expires within DUR (1d, 36h, 2w); what has
                   already expired is always shown
   --json          print JSON instead of the table, one entry per declaration
-  --verbose       also name the declarations that had no date to place:
-                  software endoflife.date does not track, cycles it has not
-                  dated yet, and lines that follow the newest release; and
-                  the files that were recognized and read nothing from
+  --verbose       also say how each printed row was reached, and name what
+                  got no row: software endoflife.date does not track, cycles
+                  it has not dated yet, lines that follow the newest
+                  release, and files that were read nothing from
   -h, --help      show this help
   -v, --version   show the version
   --instructions  print the paragraph for an agent's instruction file
@@ -89,7 +89,7 @@ Exit codes:
 // instructionsText is the paragraph an agent needs in order to use eolwhen:
 // what it answers, what the argument is, and what each exit code means for
 // what to do next. README.md quotes it verbatim.
-const instructionsText = "To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it. A recognized file that does not parse is read as nothing at all, whole rather than in part; when there is no row the `eolwhen:` line counts those files, `--verbose` names each one with a short reason and `--json` carries them in `skipped`, so an empty answer always says whether it is a complete one.\n"
+const instructionsText = "To find out whether the runtimes, base images and frameworks a directory declares are still supported, use `eolwhen` instead of reading version files and checking dates by hand: `eolwhen` for the current directory, or `eolwhen DIR` for another one. It reads the version declarations in that one directory, matches them against endoflife.date, and prints one row per release cycle with the days until support ends, 0 on the day it ends and negative after, followed by every place that cycle was declared — a file is named once with its lines behind it, as `Dockerfile:2,22,34`, and `--json` has one entry per declaration instead. Add `--within 90d` to hide what expires further out than that; what has already expired is always shown, and the exit code then answers only for the rows that were printed. Exit 1 means something is already out of support and exit 2 means something will be, so both are answers and neither is a failure; exit 0 means no row was printed, and the single `eolwhen:` line says why — most often that nothing declared has an end-of-life date yet, which is nothing to do; exit 3 is a usage error and exit 4 means endoflife.date could not be read, which is worth one retry. Only rows go to stdout, so awk can read the first three columns; lines it could not read, and anything else the answer needs said in words, are `eolwhen:` lines on stderr; a line that follows the newest release on purpose, such as `ubuntu-latest`, is not one of them and only `--verbose` names it. A recognized file that does not parse is read as nothing at all, whole rather than in part; when there is no row the `eolwhen:` line counts those files, `--verbose` names each one with a short reason and `--json` carries them in `skipped`, so an empty answer always says whether it is a complete one. A row says what to change and not how it was reached, so `--verbose` explains each printed row — the version the file wrote, how the name was answered, whether the date is that cycle's own, and the product's endoflife.date page — and `--json` carries the same as the `version`, `matched`, `dated` and `link` fields of each entry; `dated` is `predates` where the declared version is older than every cycle endoflife.date tracks, the date then being the day the oldest one ended rather than a day published for what was declared. Every row is about a version a file declares rather than about what is running: a `go 1.16` in a go.mod is the oldest Go that module promises to work with, and the build may fetch a newer toolchain.\n"
 
 type cliArgs struct {
 	showHelp         bool
@@ -218,6 +218,13 @@ func notes(dir string, r resolve.Result, shown []timeline.Finding, sk []decl.Ski
 			out = append(out, fmt.Sprintf("%s: %s is not tracked by endoflife.date", d.Source, d.What()))
 		}
 		out = append(out, unreadNotes(sk, true)...)
+		// Last, so that the rows a reader is about to see are explained
+		// next to them rather than above everything else the run set
+		// aside. Only the rows that were printed: a window hides what it
+		// hides, and explaining a row nobody can see is noise.
+		for _, f := range shown {
+			out = append(out, evidence(f))
+		}
 	}
 	// An empty table is worth one line saying why, and the reader wants that
 	// line to answer the question they ran the tool with. Declarations that
@@ -286,6 +293,48 @@ func hidden(n int, within string) string {
 		return fmt.Sprintf("1 more declaration expires further out than %s; drop --within to see it", within)
 	}
 	return fmt.Sprintf("%d more declarations expire further out than %s; drop --within to see them", n, within)
+}
+
+// matchedBy words how a declaration's name reached its product. The set is
+// the one resolve fills, and a product reached through a registry is worth
+// saying out loud: a Gemfile naming rails is Ruby on Rails because upstream
+// publishes pkg:gem/rails for it, which is a different kind of answer from
+// a file that names python.
+var matchedBy = map[string]string{
+	timeline.ByName:     "matched by name",
+	timeline.ByAlias:    "matched by an alias endoflife.date lists",
+	timeline.ByPackage:  "matched by the package name upstream publishes",
+	timeline.ByImage:    "matched by the image name upstream publishes",
+	timeline.ByCodename: "matched by the codename of the release",
+}
+
+// evidence words how one row was arrived at: what the file wrote, the cycle
+// it reached, how its name was answered, and where the day came from. A row
+// is a claim about somebody else's software, worked out through a name
+// table, a purl, a codename or an ordering of cycles, and this is what lets
+// a reader take the claim apart instead of taking it on trust. The page at
+// the end is where to check it.
+func evidence(f timeline.Finding) string {
+	line := fmt.Sprintf("%s: %s is %s, %s; %s",
+		f.Source, f.Version, f.What(), matchedBy[f.Matched], dating(f))
+	if f.Page != "" {
+		line += " — " + f.Page
+	}
+	return line
+}
+
+// dating words where a row's date came from. A cycle endoflife.date has
+// dated answers for itself. A version below every cycle it tracks has no
+// date of its own, and the day on the row is the oldest tracked cycle's,
+// which support for anything older had already run out by — an upper bound
+// worked out from an ordering, and not a day anyone published for the
+// version that was declared.
+func dating(f timeline.Finding) string {
+	if f.Dated == timeline.DatedByPredating {
+		return fmt.Sprintf("no cycle covers it, so the date is the day %s ended, which support for anything older had run out by",
+			timeline.OldestCycle(f.Cycle))
+	}
+	return "the date is that cycle's own"
 }
 
 // complaint words one line that could not be placed, with the count of the

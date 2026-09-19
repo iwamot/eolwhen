@@ -37,6 +37,42 @@ $ eolwhen
 -2270d  2020-07-01  redis <4.0  compose.yml:12
 ```
 
+## What a row was worked out from
+
+A row is three columns however it was arrived at, and it was not always arrived at the same way. The name may be the catalog's own, one of the aliases it lists, a package name upstream publishes for a registry, the Docker Hub repository a product publishes under, or a codename that names the software and the version at once. The day may be the cycle's own, or the one carried over from the oldest cycle tracked. `--verbose` says which, for every row it printed, and the address at the end is the product's page as endoflife.date publishes it — read from the catalog rather than built out of the name, which would be a guess about somebody else's routing:
+
+```
+$ eolwhen --verbose
+eolwhen: compose.yml:9: 3.2 is redis <7.2, matched by name; no cycle covers it, so the date is the day 7.2 ended, which support for anything older had run out by — https://endoflife.date/redis
+eolwhen: .nvmrc:1: 22.11.0 is nodejs 22, matched by an alias endoflife.date lists; the date is that cycle's own — https://endoflife.date/nodejs
+-258d  2026-01-01  redis <7.2  compose.yml:9
++226d  2027-04-30  nodejs 22   .nvmrc:1
+```
+
+`--json` carries the same as fields on each entry: `version` is the version string the file wrote, which the cycle no longer shows — 2.7.18 and 2.7.9 are both python 2.7, and the line is what says which one is there to change. `matched` is `name`, `alias`, `package`, `image` or `codename`. `dated` is `cycle` when the day is the cycle's own and `predates` when it was carried over from the oldest cycle tracked. `link` is the product's page.
+
+`dated` is the field to read rather than the `<` the cycle name carries. The two say the same thing, and only one of them survives a document: Go writes `<` escaped, so a caller looking for the character in `--json` output finds `\u003c` or nothing at all.
+
+## A declared version is not a running one
+
+Every row is about a version a file declares. What a directory actually runs on is settled where it runs, and this tool reads one directory and asks endoflife.date about it.
+
+The `go` directive of a `go.mod` is the clearest case. It is the oldest Go the module promises to work with, not a pin: since Go 1.21 the go command will fetch a newer toolchain when the one to hand is older than the directive asks for, and a `toolchain` directive in the same file may name a newer one outright. That directive is not read — which toolchain a build picks up is the go command's answer, settled where the build runs.
+
+```
+$ cat go.mod
+module example.com/x
+
+go 1.16
+
+toolchain go1.25.1
+
+$ eolwhen
+-1650d  2022-03-15  go 1.16  go.mod:3
+```
+
+The row is worth having: a module still promising to work with a Go that lost support in 2022 is a thing to go and change. It is not a claim that anything is being built with Go 1.16, and the two are not read into one another — nothing here reconciles the two directives or reports them as a contradiction.
+
 A version that reaches a cycle still gets no row when endoflife.date has given that cycle no end date. Support has not been dated yet, which is what a recent release looks like, so it is set aside without a word. Upstream sometimes says the opposite: that a cycle is out of support, without publishing the day it happened. There is still no date to put on a timeline, so there is still no row — but a dead release is not a current one, and it is what the reader ran the tool to find out. Those cycles are reported on stderr like a line that could not be read, whether or not `--verbose` was asked for.
 
 Software endoflife.date does not track is passed over without a word, whatever version it was given. Plenty of tools publish no end-of-life policy at all, and there was never a date to find for them; a `jq = "latest"` is a line about jq before it is a line about latest.

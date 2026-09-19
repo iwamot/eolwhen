@@ -16,12 +16,68 @@ import (
 
 // Finding is one declaration placed on the timeline: what it names, which
 // release cycle it falls in, and the day that cycle goes out of support.
+//
+// The rest is what the row was worked out from. A row is a claim about
+// somebody else's software, arrived at through a name table, a purl, a
+// codename or an ordering of cycles, and what a reader deciding whether to
+// act on it needs is a way to take it apart rather than take it on trust.
 type Finding struct {
 	Product string
 	Cycle   string
+	// Version is the version string as the file wrote it, which the cycle
+	// no longer shows: 2.7.18 and 2.7.9 are both python 2.7, and the line
+	// is what says which one is there to change.
+	Version string
+	// Matched is how the declaration's name reached this product, and Dated
+	// is where the day came from. Page is upstream's own page for the
+	// product, to check the row against.
+	Matched string
+	Dated   string
+	Page    string
 	EOL     time.Time
 	Source  decl.Source
 }
+
+// How a declaration's name reached its product. A name table, a registry
+// and a codename are three different kinds of answer, and they are not
+// equally close to the declaration: a file naming python says which software
+// it means, while a Gemfile naming rails means Ruby on Rails only because
+// upstream publishes pkg:gem/rails for it.
+const (
+	ByName     = "name"
+	ByAlias    = "alias"
+	ByPackage  = "package"
+	ByImage    = "image"
+	ByCodename = "codename"
+)
+
+// Where a row's date came from. A cycle endoflife.date has dated answers for
+// itself; a version older than every cycle it tracks has no date of its own,
+// and the row carries the day the oldest tracked cycle ended, which support
+// for anything older had already run out by. The second is an upper bound
+// worked out from an ordering rather than a published day, and the two are
+// not the same claim even though they print the same way.
+const (
+	DatedByCycle     = "cycle"
+	DatedByPredating = "predates"
+)
+
+// below is what marks a cycle name as standing for everything under the
+// oldest one tracked rather than for a cycle upstream published.
+const below = "<"
+
+// PredatingCycle names the cycle a version below everything tracked falls
+// in, and OldestCycle reads the name back. They sit together because the
+// shape of that name is a convention and not a contract: what a caller
+// reading the document is owed is the Dated field, which says the same
+// thing without a caller having to take a string apart — and having to,
+// since Go writes < escaped and a caller looking for the character finds
+// < or nothing. Here it is the two sides of one convention, so the
+// place that decides the shape is the place that depends on it.
+func PredatingCycle(oldest string) string { return below + oldest }
+
+// OldestCycle is the cycle a predating row's day came from.
+func OldestCycle(cycle string) string { return strings.TrimPrefix(cycle, below) }
 
 // What names the software and cycle, as one column.
 func (f Finding) What() string { return f.Product + " " + f.Cycle }
@@ -286,12 +342,20 @@ func cycleOf(u Undated) undated {
 	}
 }
 
+// entry is one declaration's row. Beside the answer it carries what the
+// answer was worked out from, so that a caller reading the document can tell
+// a published date from one carried over, and a product reached by its own
+// name from one reached through a registry.
 type entry struct {
 	Product string `json:"product"`
 	Cycle   string `json:"cycle"`
+	Version string `json:"version"`
 	EOL     string `json:"eol"`
 	Days    int    `json:"days"`
 	Past    bool   `json:"past"`
+	Matched string `json:"matched"`
+	Dated   string `json:"dated"`
+	Link    string `json:"link"`
 	Source  string `json:"source"`
 }
 
@@ -333,9 +397,13 @@ func JSON(r Report, now time.Time) string {
 		doc.Findings = append(doc.Findings, entry{
 			Product: f.Product,
 			Cycle:   f.Cycle,
+			Version: f.Version,
 			EOL:     f.EOL.Format(time.DateOnly),
 			Days:    Days(now, f),
 			Past:    Past(now, f),
+			Matched: f.Matched,
+			Dated:   f.Dated,
+			Link:    f.Page,
 			Source:  f.Source.String(),
 		})
 	}

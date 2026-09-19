@@ -4,6 +4,7 @@ package resolve
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/iwamot/eolwhen/internal/catalog"
 	"github.com/iwamot/eolwhen/internal/cycle"
@@ -86,7 +87,7 @@ func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 			r.codename(c, d)
 			continue
 		}
-		p, ok := product(c, d.Ecosystem, d.Product)
+		p, matched, ok := product(c, d.Ecosystem, d.Product)
 		if !ok {
 			r.Untracked = append(r.Untracked, d)
 			continue
@@ -94,7 +95,7 @@ func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 		name, ok := reach(p, d)
 		if !ok {
 			if cycle, release, older := predating(p, d); older {
-				r.place(p.Name, cycle, release, d.Source)
+				r.place(found{p, cycle, d, matched, timeline.DatedByPredating}, release)
 				continue
 			}
 			reason, moving := unmatched(p, d)
@@ -108,7 +109,7 @@ func All(c *catalog.Catalog, ds []decl.Decl, us []decl.Unreadable) Result {
 			})
 			continue
 		}
-		r.place(p.Name, name, p.Release(name), d.Source)
+		r.place(found{p, name, d, matched, timeline.DatedByCycle}, p.Release(name))
 	}
 	r.order()
 	return r
@@ -146,7 +147,7 @@ func bySource[T any](xs []T, at func(T) decl.Source) {
 }
 
 func tracked(c *catalog.Catalog, ecosystem, name string) bool {
-	_, ok := product(c, ecosystem, name)
+	_, _, ok := product(c, ecosystem, name)
 	return ok
 }
 
@@ -165,14 +166,27 @@ func tracked(c *catalog.Catalog, ecosystem, name string) bool {
 // outside the official library — opensearchproject/opensearch is OpenSearch
 // because endoflife.date says so — and it costs nothing elsewhere, since no
 // other kind of name is written with a slash.
-func product(c *catalog.Catalog, ecosystem, name string) (catalog.Product, bool) {
+func product(c *catalog.Catalog, ecosystem, name string) (catalog.Product, string, bool) {
 	if ecosystem != "" {
-		return c.ByPackage(ecosystem, name)
+		p, ok := c.ByPackage(ecosystem, name)
+		return p, timeline.ByPackage, ok
 	}
 	if p, ok := c.Lookup(name); ok {
-		return p, true
+		return p, named(p, name), true
 	}
-	return c.ByImage(name)
+	p, ok := c.ByImage(name)
+	return p, timeline.ByImage, ok
+}
+
+// named tells the catalog's own name for a product from one of the other
+// names it answers to. The two share a table, a lookup having no reason to
+// care which it was; a reader checking a row does, an alias being upstream's
+// word for the software rather than the one this file wrote.
+func named(p catalog.Product, name string) string {
+	if strings.EqualFold(p.Name, name) {
+		return timeline.ByName
+	}
+	return timeline.ByAlias
 }
 
 // predating places a declaration older than every cycle the catalog tracks.
@@ -203,7 +217,7 @@ func predating(p catalog.Product, d decl.Decl) (string, catalog.Release, bool) {
 	if _, dated := release.EOL(); !dated {
 		return "", catalog.Release{}, false
 	}
-	return "<" + oldest, release, true
+	return timeline.PredatingCycle(oldest), release, true
 }
 
 // codename places a declaration whose version names its software as well:
@@ -219,7 +233,19 @@ func (r *Result) codename(c *catalog.Catalog, d decl.Decl) {
 	if !ok {
 		return
 	}
-	r.place(p.Name, release.Name, release, d.Source)
+	r.place(found{p, release.Name, d, timeline.ByCodename, timeline.DatedByCycle}, release)
+}
+
+// found is a declaration that reached a release cycle, with what it took to
+// get there. It is what lets place say why a row is there as well as that it
+// is: the same day, reached through a purl or through an ordering of cycles,
+// is not the same claim.
+type found struct {
+	product catalog.Product
+	cycle   string
+	from    decl.Decl
+	matched string
+	dated   string
 }
 
 // place files a declaration that reached a cycle: as a finding when the
@@ -231,10 +257,10 @@ func (r *Result) codename(c *catalog.Catalog, d decl.Decl) {
 // said support is over and published no day for it. Both leave nothing to
 // put on a timeline and they are opposite in what they ask of the reader, so
 // the date alone cannot decide which was meant.
-func (r *Result) place(product, cycle string, release catalog.Release, src decl.Source) {
+func (r *Result) place(f found, release catalog.Release) {
 	eol, ok := release.EOL()
 	if !ok {
-		reached := timeline.Undated{Product: product, Cycle: cycle, Source: src}
+		reached := timeline.Undated{Product: f.product.Name, Cycle: f.cycle, Source: f.from.Source}
 		if release.IsEOL {
 			r.Ended = append(r.Ended, reached)
 			return
@@ -243,10 +269,14 @@ func (r *Result) place(product, cycle string, release catalog.Release, src decl.
 		return
 	}
 	r.Findings = append(r.Findings, timeline.Finding{
-		Product: product,
-		Cycle:   cycle,
+		Product: f.product.Name,
+		Cycle:   f.cycle,
+		Version: f.from.Version,
+		Matched: f.matched,
+		Dated:   f.dated,
+		Page:    f.product.Page(),
 		EOL:     eol,
-		Source:  src,
+		Source:  f.from.Source,
 	})
 }
 
