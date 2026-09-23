@@ -5,7 +5,9 @@
 // The file name decides the product. .nvmrc can only be about Node.js, so
 // nothing here has to guess a product from the text it reads, and a version
 // that turns out to be a word rather than a number is reported rather than
-// guessed at.
+// guessed at. .ruby-version is the one file that may name another
+// implementation of its runtime, and it does so in words of a closed
+// vocabulary rather than in anything left to guess.
 //
 // That is what keeps .java-version out. A version manager writes 17 in it
 // and nothing else, and endoflife.date tracks nine builds of Java, each with
@@ -18,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/iwamot/eolwhen/internal/decl"
+	"github.com/iwamot/eolwhen/internal/ruby"
 )
 
 // File is one of the files this package reads, and what reading it takes.
@@ -29,11 +32,16 @@ import (
 // Settings says the file's syntax lets a line be a setting rather than a
 // version. An .nvmrc may carry key=value pairs beside the one bare line that
 // names the version, and nvm keeps the two apart.
+//
+// Engine reads which implementation a line is of, for a file that names
+// more than one: .ruby-version says jruby-9.4 as readily as ruby-3.3 or
+// 3.3, and JRuby has a calendar of its own.
 type File struct {
 	Name     string
 	Product  string
 	Prefixes []string
 	Settings bool
+	Engine   func(string) (engine, version, reason string)
 }
 
 // Files lists each supported file, in the order they are looked for.
@@ -41,7 +49,7 @@ var Files = []File{
 	{Name: ".python-version", Product: "python", Prefixes: []string{"python-"}},
 	{Name: ".nvmrc", Product: "nodejs", Prefixes: []string{"node-", "nodejs-"}, Settings: true},
 	{Name: ".node-version", Product: "nodejs", Prefixes: []string{"node-", "nodejs-"}},
-	{Name: ".ruby-version", Product: "ruby", Prefixes: []string{"ruby-"}},
+	{Name: ".ruby-version", Product: "ruby", Engine: ruby.Read},
 	{Name: ".php-version", Product: "php"},
 	{Name: ".go-version", Product: "go"},
 	{Name: ".terraform-version", Product: "terraform"},
@@ -99,16 +107,25 @@ func versionLines(path string, f File, data []byte) ([]decl.Decl, []decl.Unreada
 		// trailing comment already has.
 		text := strings.Fields(line)[0]
 		src := decl.Source{File: path, Line: i + 1}
+		product := f.Product
+		if f.Engine != nil {
+			engine, rest, r := f.Engine(text)
+			if r != "" {
+				us = append(us, decl.Unreadable{Source: src, Product: engine, Text: rest, Reason: r, Moving: true})
+				continue
+			}
+			product, text = engine, rest
+		}
 		v := normalize(text, f.Prefixes)
 		// A codename is only read where a file's own syntax marks one:
 		// nvm's lts/hydrogen names Node.js 18, while a bare word in a
 		// .python-version is an interpreter's name and not a release.
 		if !looksLikeVersion(v) && !(strings.HasPrefix(text, "lts/") && codename(v)) {
 			r, moving := reason(text)
-			us = append(us, decl.Unreadable{Source: src, Product: f.Product, Text: text, Reason: r, Moving: moving})
+			us = append(us, decl.Unreadable{Source: src, Product: product, Text: text, Reason: r, Moving: moving})
 			continue
 		}
-		ds = append(ds, decl.Decl{Product: f.Product, Version: v, Source: src})
+		ds = append(ds, decl.Decl{Product: product, Version: v, Source: src})
 	}
 	return ds, us
 }

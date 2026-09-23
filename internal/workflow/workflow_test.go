@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,8 +219,10 @@ func TestReported(t *testing.T) {
 		// often opens with nothing but ${{.
 		{"an expression over several lines", "jobs:\n  a:\n    runs-on: >-\n      ${{ github.repository == 'x/y'\n          && 'big'\n          || 'ubuntu-22.04' }}\n",
 			"${{ github.repository == 'x/y' && 'big' || 'ubuntu-22.04' }}", "takes its runner from an expression"},
-		{"a word where a version goes", "jobs:\n  a:\n    steps:\n      - uses: ruby/setup-ruby@v1\n        with:\n          ruby-version: ruby\n",
-			"ruby", "is not a version"},
+		// An implementation setup-ruby does not install is no version of
+		// the one it does.
+		{"a word where a version goes", "jobs:\n  a:\n    steps:\n      - uses: ruby/setup-ruby@v1\n        with:\n          ruby-version: mruby-3.2\n",
+			"mruby-3.2", "is not a version"},
 		// Which build of Java a matrix lists would have to be paired with
 		// the versions beside it, which is a run's answer and not this one's.
 		{"a distribution from an expression", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@v4\n        with:\n          distribution: ${{ matrix.dist }}\n          java-version: '17'\n",
@@ -516,5 +519,53 @@ func TestExtractSetsAsideAFileItCannotParse(t *testing.T) {
 				t.Errorf("Extract = %+v, %+v; want nothing", ds, us)
 			}
 		})
+	}
+}
+
+// TestRubyEngines: setup-ruby names the implementation in the version, so
+// each line reaches the software it installs. A development build or an
+// implementation named on its own follows the newest there is, and says
+// which software it is so that one the catalog does not track is set aside.
+func TestRubyEngines(t *testing.T) {
+	body := "jobs:\n  a:\n    strategy:\n      matrix:\n        ruby: ['3.3', ruby-2.6.5, jruby-9.4, truffleruby-24.1, head, jruby-head, truffleruby]\n" +
+		"    steps:\n      - uses: ruby/setup-ruby@v1\n        with:\n          ruby-version: ${{ matrix.ruby }}\n"
+	ds, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
+	var got []string
+	for _, d := range ds {
+		got = append(got, d.Product+" "+d.Version)
+	}
+	if want := []string{"ruby 3.3", "ruby 2.6.5", "jruby 9.4", "truffleruby 24.1"}; !slices.Equal(got, want) {
+		t.Errorf("declarations = %q; want %q", got, want)
+	}
+	got = nil
+	for _, u := range us {
+		if !u.Moving {
+			t.Errorf("%+v is not moving", u)
+		}
+		got = append(got, u.What()+": "+u.Reason)
+	}
+	want := []string{
+		"ruby head: names a development build, not a version",
+		"jruby head: names a development build, not a version",
+		"truffleruby: names the newest stable release, not a version",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("unreadable = %q; want %q", got, want)
+	}
+}
+
+// TestReportedNamesTheSetup: a setup-* step names its software apart from
+// the version, so a line it could not read still says which software it is
+// about, for the catalog to set aside one it does not track. A runner label
+// names its own.
+func TestReportedNamesTheSetup(t *testing.T) {
+	body := "jobs:\n  a:\n    runs-on: ${{ inputs.runner }}\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ env.PYTHON_VERSION }}\n"
+	_, us, _ := Extract(".github/workflows/ci.yml", []byte(body))
+	var got []string
+	for _, u := range us {
+		got = append(got, u.Product)
+	}
+	if want := []string{"", "python"}; !slices.Equal(got, want) {
+		t.Errorf("products = %q; want %q", got, want)
 	}
 }
