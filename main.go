@@ -160,6 +160,8 @@ func parseArgs(argv []string) (cliArgs, error) {
 //     build) when it differs from devVersion.
 //  2. info.Main.Version when present and not "(devel)" or "" — this is what
 //     `go install module@vX.Y.Z` records, even though ldflags don't apply.
+//     Its leading "v" is dropped, so every way of installing prints the
+//     version as GoReleaser and the Homebrew cask spell it.
 //  3. injected (devVersion) as the final fallback.
 func resolveVersion(injected string, info *debug.BuildInfo) string {
 	if injected != devVersion {
@@ -168,7 +170,7 @@ func resolveVersion(injected string, info *debug.BuildInfo) string {
 	if info != nil {
 		v := info.Main.Version
 		if v != "" && v != "(devel)" {
-			return v
+			return strings.TrimPrefix(v, "v")
 		}
 	}
 	return injected
