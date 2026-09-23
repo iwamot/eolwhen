@@ -279,7 +279,8 @@ func TestResolveVersion(t *testing.T) {
 		want     string
 	}{
 		{"ldflags win", "1.2.3", &debug.BuildInfo{Main: debug.Module{Version: "v9"}}, "1.2.3"},
-		{"go install records the tag", devVersion, &debug.BuildInfo{Main: debug.Module{Version: "v1.0.0"}}, "v1.0.0"},
+		{"go install records the tag, without the v", devVersion, &debug.BuildInfo{Main: debug.Module{Version: "v1.0.0"}}, "1.0.0"},
+		{"only the leading v is dropped", devVersion, &debug.BuildInfo{Main: debug.Module{Version: "v1.0.0-dev"}}, "1.0.0-dev"},
 		{"a local build", devVersion, &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, devVersion},
 		{"no build info", devVersion, nil, devVersion},
 	} {
