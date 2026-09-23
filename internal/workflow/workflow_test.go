@@ -201,11 +201,13 @@ func TestReported(t *testing.T) {
 			"${{ matrix.os }}", "takes its runner from an expression"},
 		{"a version from a matrix that lists none", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.python }}\n",
 			"${{ matrix.python }}", "takes its version from an expression"},
-		// Only a matrix is followed, that being where a project lists the
-		// versions it supports. An expression naming anything else is
-		// reported like any other this file cannot work out.
-		{"a version from somewhere else in the workflow", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ env.PYTHON_VERSION }}\n",
+		// A matrix and an env: in scope are followed; the ones that set
+		// the name are TestEnv. An env variable nothing in the file sets
+		// comes from somewhere this file cannot see.
+		{"a version from an env variable nothing sets", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ env.PYTHON_VERSION }}\n",
 			"${{ env.PYTHON_VERSION }}", "takes its version from an expression"},
+		{"a version from any other context", "jobs:\n  a:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ vars.PYTHON_VERSION }}\n",
+			"${{ vars.PYTHON_VERSION }}", "takes its version from an expression"},
 		// A matrix built at run time lists nothing to read either.
 		{"a matrix built by an expression", "jobs:\n  a:\n    strategy:\n      matrix: ${{ fromJSON(needs.setup.outputs.m) }}\n    runs-on: ${{ matrix.os }}\n",
 			"${{ matrix.os }}", "takes its runner from an expression"},
@@ -567,5 +569,81 @@ func TestReportedNamesTheSetup(t *testing.T) {
 	}
 	if want := []string{"", "python"}; !slices.Equal(got, want) {
 		t.Errorf("products = %q; want %q", got, want)
+	}
+}
+
+// TestEnv: a version kept in an env: block and given to a setup-* action as
+// ${{ env.NAME }} is declared where the env: sets it, which is the line to
+// go and change. The nearest env: in scope wins, as it does when the
+// workflow runs.
+func TestEnv(t *testing.T) {
+	type line struct {
+		product, version string
+		line             int
+	}
+	const setup = "      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ env.NODE }}\n"
+	for _, tt := range []struct {
+		name string
+		body string
+		want []line
+	}{
+		{"set for the workflow", "env:\n  NODE: 20.18.1\njobs:\n  a:\n    steps:\n" + setup,
+			[]line{{"node", "20.18.1", 2}}},
+		{"a trailing wildcard, as setup-dotnet takes one", "env:\n  DOTNET: '10.0.x'\njobs:\n  a:\n    steps:\n      - uses: actions/setup-dotnet@v4\n        with:\n          dotnet-version: ${{ env.DOTNET }}\n",
+			[]line{{"dotnet", "10.0", 2}}},
+		{"the job's over the workflow's", "env:\n  NODE: '18'\njobs:\n  a:\n    env:\n      NODE: '20'\n    steps:\n" + setup,
+			[]line{{"node", "20", 6}}},
+		{"the step's over the job's", "jobs:\n  a:\n    env:\n      NODE: '18'\n    steps:\n      - env:\n          NODE: '22'\n        uses: actions/setup-node@v4\n        with:\n          node-version: ${{ env.NODE }}\n",
+			[]line{{"node", "22", 7}}},
+		// A job sees the workflow's env: and its own, not another job's.
+		{"one job's for each job", "env:\n  NODE: '18'\njobs:\n  a:\n    env:\n      NODE: '20'\n    steps:\n" + setup + "  b:\n    steps:\n" + setup,
+			[]line{{"node", "20", 6}, {"node", "18", 2}}},
+		// Two steps reading the same line declare it once.
+		{"read twice", "env:\n  NODE: '20'\njobs:\n  a:\n    steps:\n" + setup + setup,
+			[]line{{"node", "20", 2}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			if len(us) != 0 {
+				t.Fatalf("unreadable = %+v; want none", us)
+			}
+			var got []line
+			for _, d := range ds {
+				got = append(got, line{d.Product, d.Version, d.Source.Line})
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("declarations = %+v; want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEnvUnread: an env: that says nothing this file can read is reported
+// where the reader has to go and look.
+func TestEnvUnread(t *testing.T) {
+	const setup = "    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ env.NODE }}\n"
+	for _, tt := range []struct {
+		name, body, text string
+		line             int
+	}{
+		// The variable is set, to something only a run can work out, and
+		// that line is the one to look at.
+		{"set by an expression", "env:\n  NODE: ${{ vars.NODE }}\njobs:\n  a:\n" + setup, "${{ vars.NODE }}", 2},
+		// An env: written as an expression may set the name or replace the
+		// workflow's, so neither is read.
+		{"under an env: built by an expression", "env:\n  NODE: '20'\njobs:\n  a:\n    env: ${{ fromJSON(inputs.env) }}\n" + setup, "${{ env.NODE }}", 9},
+		// Another job's env: is not in scope.
+		{"set only for another job", "jobs:\n  a:\n    env:\n      NODE: '20'\n    steps: []\n  b:\n" + setup, "${{ env.NODE }}", 10},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, us, _ := Extract(".github/workflows/ci.yml", []byte(tt.body))
+			if len(ds) != 0 {
+				t.Fatalf("declarations = %+v; want none", ds)
+			}
+			want := decl.Unreadable{Source: decl.Source{File: ".github/workflows/ci.yml", Line: tt.line}, Product: "node", Text: tt.text, Reason: "takes its version from an expression"}
+			if len(us) != 1 || us[0] != want {
+				t.Fatalf("unreadable = %+v; want %+v", us, want)
+			}
+		})
 	}
 }

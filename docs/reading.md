@@ -182,6 +182,8 @@ The runner-image catalog holds the images GitHub offers and the ones it retired 
 
 A version written once and referred to elsewhere is still read: a workflow that keeps it in `env:` under an anchor and writes `python-version: *python` in the step declares it at the step, which is the line to go and change. An anchor may be defined more than once, and an alias means the definition above it, as YAML says; one added further down does not reach back and change what an earlier reference meant.
 
+A version kept in an `env:` block and given to the action as `${{ env.NODE_VERSION }}` is read the same way a matrix's is, at the line the `env:` sets it on, since that is where it is changed. A step sees its own `env:`, then its job's, then the workflow's, and the nearest one that sets the name is the one read. A name nothing in the file sets, an `env:` value that is itself an expression, and anything below an `env:` written as an expression are reported rather than guessed at. A variable a step writes to `$GITHUB_ENV` while the workflow runs is not seen at all: what is read is what the file declares.
+
 ### What a matrix declares
 
 A workflow that writes `python-version: ${{ matrix.python-version }}` is not hiding the versions it runs on — they are listed a few lines above it, in the same job's `strategy.matrix`, which is where a project says which versions it supports. Each is read there, and reported at the line it was written on, which is the line to go and change:
