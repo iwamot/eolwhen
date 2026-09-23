@@ -272,12 +272,14 @@ var reMatrixValue = regexp.MustCompile(`^\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_-
 // lookup reads a field that may stand for a matrix key. named says the field
 // is one and nothing else; listed says the matrix has values under it, which
 // a matrix built by an expression, or one belonging to another job, does not.
+// The key is looked up lowercased, because that is how every key of the file
+// was read.
 func (m matrix) lookup(text string) (vs []yamlfile.Entry, named, listed bool) {
 	key := reMatrixValue.FindStringSubmatch(text)
 	if key == nil {
 		return nil, false, false
 	}
-	vs, listed = m[key[1]]
+	vs, listed = m[strings.ToLower(key[1])]
 	return vs, true, listed
 }
 
@@ -318,7 +320,7 @@ var reEnvValue = regexp.MustCompile(`^\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\
 // lookup reads a field that may stand for an env variable, answering as
 // matrix.lookup does: named says the field is one and nothing else, and
 // listed says an env: in scope sets it. The name is looked up lowercased,
-// because that is how every key of the file was read.
+// as a matrix key is.
 func (e env) lookup(text string) (vs []yamlfile.Entry, named, listed bool) {
 	name := reEnvValue.FindStringSubmatch(text)
 	if name == nil {
