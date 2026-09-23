@@ -49,7 +49,7 @@ eolwhen: .nvmrc:1: 22.11.0 is nodejs 22, matched by an alias endoflife.date list
 +226d  2027-04-30  nodejs 22   .nvmrc:1
 ```
 
-`--json` carries the same as fields on each entry: `version` is the version string the file wrote, which the cycle no longer shows — 2.7.18 and 2.7.9 are both python 2.7, and the line is what says which one is there to change. `matched` is `name`, `alias`, `package`, `image` or `codename`. `dated` is `cycle` when the day is the cycle's own and `predates` when it was carried over from the oldest cycle tracked. `link` is the product's page.
+`--json` carries the same as fields on each entry: `version` is the version read from the line, which the cycle no longer shows — 2.7.18 and 2.7.9 are both python 2.7, and the line is what says which one is there to change. It is the version as read rather than the text around it: a leading `v` or runtime name such as `ruby-`, a trailing `.x`, and the variant after an image tag's version fall away, and one tag can give two, as `python:3.8-slim-buster` gives `3.8` for Python and `buster` for Debian. A manifest's requirement is kept as written, `^7.16.0` and all, since the operator is part of what it says. `matched` is `name`, `alias`, `package`, `image` or `codename`. `dated` is `cycle` when the day is the cycle's own and `predates` when it was carried over from the oldest cycle tracked. `link` is the product's page.
 
 `dated` is the field to read rather than the `<` the cycle name carries. The two say the same thing, and only one of them survives a document: Go writes `<` escaped, so a caller looking for the character in `--json` output finds `\u003c` or nothing at all.
 
