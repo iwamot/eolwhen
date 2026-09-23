@@ -143,6 +143,12 @@ eolwhen --json > eol.json || [ $? = 2 ]
 jq -e '.skipped | length == 0' eol.json
 ```
 
+A cycle upstream calls out of support without publishing a day has no row, so it does not change the exit code either; a job that wants such a cycle to fail the build reads `ended` the same way:
+
+```bash
+jq -e '.ended | length == 0' eol.json
+```
+
 The same answer as JSON, with one entry per declaration rather than one per cycle, and `cycle` reading `<4.0` where the version predates everything endoflife.date tracks: the table folds them for reading, and a caller reading the document wants each place as its own record. Each entry also carries what its row was worked out from: `version` is the version read from the line, which the cycle no longer shows; `matched` is `name`, `alias`, `package`, `image` or `codename`; `dated` is `cycle` when the day is that cycle's own and `predates` when it was carried over from the oldest cycle tracked; `link` is the product's page. Read `dated` rather than the `<` the cycle name carries — Go writes that character escaped, so a caller looking for it in the document finds `\u003c` or nothing at all. Everything the table needs said in words on stderr is a field here instead: `hidden` is how many findings a `--within` window kept out, `ended` holds the cycles upstream calls out of support without publishing a day, `skipped` holds the files that were recognized and read nothing from, and `moving`, `untracked` and `undated` are filled when `--verbose` asks for the declarations that had no date to place — lines that follow the newest release, software endoflife.date has no policy for, and cycles it has not dated yet.
 
 ```
