@@ -8,6 +8,7 @@
 package workflow
 
 import (
+	"maps"
 	"regexp"
 	"strings"
 
@@ -126,8 +127,9 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable, string) 
 		if !ok {
 			continue
 		}
+		workflow := env(nil).with(root)
 		for _, job := range byID {
-			r.job(job)
+			r.job(job, workflow)
 		}
 	}
 	return r.ds, r.us, ""
@@ -169,14 +171,15 @@ func (r *reader) report(e yamlfile.Entry, product, text, reason string, moving b
 	}
 }
 
-// job reads one job: the runner it asks for, and the steps it runs, both
-// with the job's matrix in hand.
-func (r *reader) job(job yamlfile.Entry) {
+// job reads one job: the runner it asks for and the steps it runs, with the
+// job's matrix in hand, and each step with the env: it sees.
+func (r *reader) job(job yamlfile.Entry, workflow env) {
 	entries, ok := job.Mapping()
 	if !ok {
 		return
 	}
 	m := matrixOf(entries)
+	vars := workflow.with(entries)
 	if e, ok := yamlfile.Find(entries, "runs-on"); ok {
 		r.runsOn(e, m)
 	}
@@ -196,7 +199,7 @@ func (r *reader) job(job yamlfile.Entry) {
 		uses, hasUses := yamlfile.Find(step, "uses")
 		with, hasWith := yamlfile.Find(step, "with")
 		if hasUses && hasWith {
-			r.step(uses, with, m)
+			r.step(uses, with, m, vars.with(step))
 		}
 	}
 }
@@ -278,6 +281,56 @@ func (m matrix) lookup(text string) (vs []yamlfile.Entry, named, listed bool) {
 	return vs, true, listed
 }
 
+// env is the variables an env: block in scope sets, as the entries they were
+// written as. A version kept in one — NODE_VERSION: 20 at the top of the
+// workflow, given to setup-node as ${{ env.NODE_VERSION }} — is declared at
+// that line, which is the one to go and change, the way a matrix's is.
+//
+// A step sees its own env:, then its job's, then the workflow's, the nearer
+// one winning, which is how GitHub Actions resolves the same name set twice.
+// An env: written as an expression sets names nobody can know here, and may
+// replace any of the ones above it, so below it nothing is known.
+type env map[string]yamlfile.Entry
+
+// with is the env a scope sees: this one, with what the scope's own env:
+// sets laid over it.
+func (e env) with(scope []yamlfile.Entry) env {
+	block, ok := yamlfile.Find(scope, "env")
+	if !ok {
+		return e
+	}
+	vars, ok := block.Mapping()
+	if !ok {
+		return env{}
+	}
+	out := make(env, len(e)+len(vars))
+	maps.Copy(out, e)
+	for _, v := range vars {
+		out[v.Key] = v
+	}
+	return out
+}
+
+// reEnvValue matches a value that is one env variable and nothing else, as
+// reMatrixValue does a matrix key.
+var reEnvValue = regexp.MustCompile(`^\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$`)
+
+// lookup reads a field that may stand for an env variable, answering as
+// matrix.lookup does: named says the field is one and nothing else, and
+// listed says an env: in scope sets it. The name is looked up lowercased,
+// because that is how every key of the file was read.
+func (e env) lookup(text string) (vs []yamlfile.Entry, named, listed bool) {
+	name := reEnvValue.FindStringSubmatch(text)
+	if name == nil {
+		return nil, false, false
+	}
+	v, listed := e[strings.ToLower(name[1])]
+	if !listed {
+		return nil, true, false
+	}
+	return []yamlfile.Entry{v}, true, true
+}
+
 // runsOn reads the runner labels a job asks for. The field takes one label,
 // a list of them, or a group with its labels spelled out, and each shape is
 // read to the depth it has: a group holds labels, a list holds labels, and
@@ -340,7 +393,7 @@ func (r *reader) label(e yamlfile.Entry, m matrix) {
 // decides the runtime, and where the action installs more than one
 // implementation of it, the version says which; anything else with a with:
 // block is left alone.
-func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
+func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix, vars env) {
 	uses, ok := usesEntry.Scalar()
 	if !ok {
 		return
@@ -371,6 +424,9 @@ func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
 			continue
 		}
 		vs, named, listed := m.lookup(strings.TrimSpace(raw))
+		if !named {
+			vs, named, listed = vars.lookup(strings.TrimSpace(raw))
+		}
 		if named && !listed {
 			r.report(e, product, oneLine(raw), "takes its version from an expression", false)
 			continue
