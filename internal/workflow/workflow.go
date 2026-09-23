@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/iwamot/eolwhen/internal/decl"
+	"github.com/iwamot/eolwhen/internal/ruby"
 	"github.com/iwamot/eolwhen/internal/yamlfile"
 )
 
@@ -28,17 +29,23 @@ const Runners = "github-actions-runner-images"
 // with a calendar of its own — so setup-java says which in an input beside
 // the version, and Names carries where to read the software rather than
 // Product carrying it.
+//
+// Another names its software in the version itself. setup-ruby installs
+// JRuby and TruffleRuby as readily as Ruby, written jruby-9.4 where Ruby is
+// 3.3, so Engine reads which implementation a version is of before the
+// version is read.
 var setups = map[string]struct {
 	Input   string
 	Product string
 	Names   string
+	Engine  func(string) (engine, version, reason string)
 }{
 	"actions/setup-node":     {Input: "node-version", Product: "node"},
 	"actions/setup-python":   {Input: "python-version", Product: "python"},
 	"actions/setup-go":       {Input: "go-version", Product: "go"},
 	"actions/setup-dotnet":   {Input: "dotnet-version", Product: "dotnet"},
 	"actions/setup-java":     {Input: "java-version", Names: "distribution"},
-	"ruby/setup-ruby":        {Input: "ruby-version", Product: "ruby"},
+	"ruby/setup-ruby":        {Input: "ruby-version", Product: "ruby", Engine: ruby.Read},
 	"shivammathur/setup-php": {Input: "php-version", Product: "php"},
 }
 
@@ -150,8 +157,12 @@ func (r *reader) declare(e yamlfile.Entry, product, version string) {
 	}
 }
 
-func (r *reader) report(e yamlfile.Entry, text, reason string, moving bool) {
-	u := decl.Unreadable{Source: r.at(e), Text: text, Reason: reason, Moving: moving}
+// report files a line that could not be read. product is the software the
+// line is about when the step names it apart from the version, as a setup-*
+// action does, so that a line about software the catalog does not track is
+// set aside like any other declaration of it; a runner label names its own.
+func (r *reader) report(e yamlfile.Entry, product, text, reason string, moving bool) {
+	u := decl.Unreadable{Source: r.at(e), Product: product, Text: text, Reason: reason, Moving: moving}
 	if !r.reported[u] {
 		r.reported[u] = true
 		r.us = append(r.us, u)
@@ -301,7 +312,7 @@ func (r *reader) label(e yamlfile.Entry, m matrix) {
 	}
 	if vs, named, listed := m.lookup(label); named {
 		if !listed {
-			r.report(e, oneLine(label), "takes its runner from an expression", false)
+			r.report(e, "", oneLine(label), "takes its runner from an expression", false)
 			return
 		}
 		// The matrix lists the labels this field stands for, and each is
@@ -314,19 +325,21 @@ func (r *reader) label(e yamlfile.Entry, m matrix) {
 	}
 	switch {
 	case strings.Contains(label, "${{"):
-		r.report(e, oneLine(label), "takes its runner from an expression", false)
+		r.report(e, "", oneLine(label), "takes its runner from an expression", false)
 	case !hosted(label):
 		// A self-hosted or custom label names a machine, not a version, so
 		// there was never a date to look for.
 	case strings.HasSuffix(label, "-latest"):
-		r.report(e, label, "names latest, not a version", true)
+		r.report(e, "", label, "names latest, not a version", true)
 	default:
 		r.declare(e, Runners, catalogLabel(label))
 	}
 }
 
 // step reads the version a setup-* action is told to install. The action name
-// decides the runtime; anything else with a with: block is left alone.
+// decides the runtime, and where the action installs more than one
+// implementation of it, the version says which; anything else with a with:
+// block is left alone.
 func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
 	uses, ok := usesEntry.Scalar()
 	if !ok {
@@ -359,7 +372,7 @@ func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
 		}
 		vs, named, listed := m.lookup(strings.TrimSpace(raw))
 		if named && !listed {
-			r.report(e, oneLine(raw), "takes its version from an expression", false)
+			r.report(e, product, oneLine(raw), "takes its version from an expression", false)
 			continue
 		}
 		if !named {
@@ -378,12 +391,21 @@ func (r *reader) step(usesEntry, withEntry yamlfile.Entry, m matrix) {
 				if line == "" {
 					continue
 				}
+				software := product
+				if setup.Engine != nil {
+					engine, rest, reason := setup.Engine(line)
+					if reason != "" {
+						r.report(v, engine, oneLine(rest), reason, true)
+						continue
+					}
+					software, line = engine, rest
+				}
 				got, reason, moving := version(line)
 				if reason != "" {
-					r.report(v, oneLine(line), reason, moving)
+					r.report(v, software, oneLine(line), reason, moving)
 					continue
 				}
-				r.declare(v, product, got)
+				r.declare(v, software, got)
 			}
 		}
 	}
@@ -408,7 +430,7 @@ func (r *reader) installs(with []yamlfile.Entry, input string) (string, bool) {
 		return "", false
 	}
 	if strings.Contains(name, "${{") {
-		r.report(e, oneLine(name), "takes its distribution from an expression", false)
+		r.report(e, "", oneLine(name), "takes its distribution from an expression", false)
 		return "", false
 	}
 	name = strings.ToLower(strings.TrimSpace(name))

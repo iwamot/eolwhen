@@ -79,7 +79,7 @@ Software endoflife.date does not track is passed over without a word, whatever v
 
 ## Runtime version files
 
-`.python-version`, `.nvmrc`, `.node-version`, `.ruby-version`, `.php-version`, `.go-version` and `.terraform-version` each name one runtime by their file name, and the `go` directive of a `go.mod` names Go the same way. `.python-version` may name several versions, as pyenv allows; each gets its own row.
+`.python-version`, `.nvmrc`, `.node-version`, `.ruby-version`, `.php-version`, `.go-version` and `.terraform-version` each name one runtime by their file name, and the `go` directive of a `go.mod` names Go the same way. A `.ruby-version` may name another implementation of Ruby in front of the version, as [a workflow's](#which-ruby) does. `.python-version` may name several versions, as pyenv allows; each gets its own row.
 
 ## Tool lists
 
@@ -207,6 +207,10 @@ There is no such thing as a version of Java on its own. endoflife.date tracks ni
 ```
 
 The value is a closed vocabulary the action defines, and the catalog already answers to most of it — `temurin` is Eclipse Temurin and `corretto` is Amazon Corretto by upstream's own aliases — so the word is handed on as it was written. Only `oracle` and `microsoft`, which the catalog has no alias for, are spelled its way instead. A distribution it knows nothing about is passed over like any other software it does not track, and a step naming none installs nothing this can date.
+
+### Which Ruby
+
+`ruby/setup-ruby` installs JRuby and TruffleRuby as readily as Ruby, and says which in the version itself: `3.3` and `ruby-3.3` are Ruby 3.3, while `jruby-9.4` is JRuby 9.4, which has a calendar of its own. The implementations are the action's own closed vocabulary — `ruby`, `jruby`, `truffleruby` and `truffleruby+graalvm` — so the name in front of a version is read as the software rather than guessed at, and one the catalog does not track, as it does not TruffleRuby, is passed over. A development build — `head`, `jruby-head`, and the `debug`, `asan`, `mingw`, `mswin` and `ucrt` builds of Ruby's own — and an implementation named on its own, which installs its newest stable release, follow the newest there is on purpose, so they get no row. rbenv and rvm write a `.ruby-version` the same way, and it is read the same way.
 
 ## When nothing is printed
 

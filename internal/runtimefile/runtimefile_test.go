@@ -55,6 +55,11 @@ func TestExtractCaught(t *testing.T) {
 			[]decl.Decl{{Product: "nodejs", Version: "14.19.0", Source: decl.Source{File: ".nvmrc", Line: 1}}}},
 		{"rvm prefix", ".ruby-version", "ruby-2.6.2\n",
 			[]decl.Decl{{Product: "ruby", Version: "2.6.2", Source: decl.Source{File: ".ruby-version", Line: 1}}}},
+		// Another implementation of Ruby is its own software.
+		{"jruby", ".ruby-version", "jruby-9.4.8.0\n",
+			[]decl.Decl{{Product: "jruby", Version: "9.4.8.0", Source: decl.Source{File: ".ruby-version", Line: 1}}}},
+		{"truffleruby", ".ruby-version", "truffleruby-24.1.0\n",
+			[]decl.Decl{{Product: "truffleruby", Version: "24.1.0", Source: decl.Source{File: ".ruby-version", Line: 1}}}},
 		{"node-version prefix", ".node-version", "node-18.0.0\n",
 			[]decl.Decl{{Product: "nodejs", Version: "18.0.0", Source: decl.Source{File: ".node-version", Line: 1}}}},
 		{"go directive", "go.mod", "module example.com/x\n\ngo 1.21.5\n\nrequire (\n)\n",
@@ -221,5 +226,21 @@ func TestGoModReadsTheDirectiveAndNotTheToolchain(t *testing.T) {
 	want := []decl.Decl{{Product: "go", Version: "1.16", Source: decl.Source{File: "go.mod", Line: 3}}}
 	if len(ds) != len(want) || ds[0] != want[0] {
 		t.Fatalf("declarations = %+v; want %+v", ds, want)
+	}
+}
+
+// TestExtractRubyDevelopment: a development build follows its branch on
+// purpose, and says which implementation it is a build of.
+func TestExtractRubyDevelopment(t *testing.T) {
+	for _, tt := range []struct{ data, product, text string }{
+		{"ruby-head\n", "ruby", "head"},
+		{"jruby-head\n", "jruby", "head"},
+	} {
+		ds, us := Extract(".ruby-version", []byte(tt.data))
+		want := decl.Unreadable{Source: decl.Source{File: ".ruby-version", Line: 1}, Product: tt.product, Text: tt.text,
+			Reason: "names a development build, not a version", Moving: true}
+		if len(ds) != 0 || len(us) != 1 || us[0] != want {
+			t.Errorf("Extract(%q) = %+v, %+v; want %+v", tt.data, ds, us, want)
+		}
 	}
 }

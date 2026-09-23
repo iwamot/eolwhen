@@ -47,7 +47,7 @@ Or download a prebuilt binary from the [Releases page](https://github.com/iwamot
 |---|---|
 | `.python-version` | Python |
 | `.nvmrc`, `.node-version` | Node.js |
-| `.ruby-version` | Ruby |
+| `.ruby-version` | Ruby, or the JRuby or TruffleRuby it names |
 | `.php-version` | PHP |
 | `.go-version`, `go.mod` (the `go` directive) | Go |
 | `.terraform-version` | Terraform |
