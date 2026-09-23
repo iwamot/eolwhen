@@ -7,7 +7,7 @@ Say which of a directory's declared versions are out of support.
 
 ```
 $ eolwhen
-eolwhen: Dockerfile:12: python@sha256:3f1a2b is pinned by digest, which does not say which version it is
+eolwhen: Dockerfile:12: python sha256:3f1a2b is pinned by digest, which does not say which version it is
 -2450d  2020-01-01  python 2.7         .python-version:1
 -1964d  2021-05-01  alpine-linux 3.10  docker/Dockerfile.ci:2
 -1177d  2023-06-27  python 3.7         Dockerfile:1,9

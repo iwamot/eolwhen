@@ -80,30 +80,38 @@ func TestExtractCaught(t *testing.T) {
 }
 
 // TestExtractReported is the half that is read but deliberately not matched.
-// Each of these is a line somebody wrote about software this tool cannot
-// identify from the text, so guessing is what would put a wrong date on the
-// timeline.
+// Each of these names software without a version this tool can place, so
+// guessing is what would put a wrong date on the timeline. The software is
+// carried apart from the text, for the catalog to set aside what it does
+// not track.
 func TestExtractReported(t *testing.T) {
 	for _, tt := range []struct {
-		name   string
-		body   string
-		reason string
+		name string
+		body string
+		want decl.Unreadable
 	}{
 		{"pinned by digest", "FROM python@sha256:0000000000000000000000000000000000000000000000000000000000000000\n",
-			"is pinned by digest, which does not say which version it is"},
-		{"no tag", "FROM python\n", "names no tag, so it follows latest"},
-		{"latest", "FROM python:latest\n", "names latest, not a version"},
+			decl.Unreadable{Product: "python", Text: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				Reason: "is pinned by digest, which does not say which version it is"}},
+		{"no tag", "FROM python\n", decl.Unreadable{Product: "python", Reason: "names no tag, so it follows latest", Moving: true}},
+		{"latest", "FROM python:latest\n", decl.Unreadable{Product: "python", Text: "latest", Reason: "names latest, not a version", Moving: true}},
 		// A name no ARG declares is given from outside the file, so there is
 		// nothing here to read it as.
-		{"a build argument", "FROM python:${PYTHON_VERSION}\n", "takes its version from a variable"},
+		{"a build argument", "FROM python:${PYTHON_VERSION}\n",
+			decl.Unreadable{Product: "python", Text: "${PYTHON_VERSION}", Reason: "takes its version from a variable"}},
+		// Another publisher's image is named as written, so the catalog can
+		// set it aside when it does not track it.
+		{"another publisher's image", "FROM registry.corp/base@sha256:00\n",
+			decl.Unreadable{Product: "registry.corp/base", Text: "sha256:00", Reason: "is pinned by digest, which does not say which version it is"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ds, us := Extract("Dockerfile", []byte(tt.body))
 			if len(ds) != 0 {
 				t.Fatalf("declarations = %+v; want none", ds)
 			}
-			if len(us) != 1 || us[0].Reason != tt.reason {
-				t.Fatalf("unreadable = %+v; want one with reason %q", us, tt.reason)
+			tt.want.Source = decl.Source{File: "Dockerfile", Line: 1}
+			if len(us) != 1 || us[0] != tt.want {
+				t.Fatalf("unreadable = %+v; want %+v", us, tt.want)
 			}
 		})
 	}
