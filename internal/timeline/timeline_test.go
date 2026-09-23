@@ -245,7 +245,7 @@ func TestJSON(t *testing.T) {
 		`"days": -2450`,
 		`"past": true`,
 		`"source": ".python-version:1"`,
-		// What the row was worked out from: the version the file wrote,
+		// What the row was worked out from: the version read from the line,
 		// which the cycle no longer shows, how the name was answered, and
 		// that the day is the cycle's own rather than one carried over.
 		`"version": "2.7.18"`,

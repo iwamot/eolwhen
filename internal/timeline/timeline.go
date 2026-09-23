@@ -24,9 +24,9 @@ import (
 type Finding struct {
 	Product string
 	Cycle   string
-	// Version is the version string as the file wrote it, which the cycle
-	// no longer shows: 2.7.18 and 2.7.9 are both python 2.7, and the line
-	// is what says which one is there to change.
+	// Version is the version read from the line, which the cycle no longer
+	// shows: 2.7.18 and 2.7.9 are both python 2.7, and the line is what says
+	// which one is there to change.
 	Version string
 	// Matched is how the declaration's name reached this product, and Dated
 	// is where the day came from. Page is upstream's own page for the
