@@ -385,6 +385,22 @@ func TestMatrix(t *testing.T) {
 			"          python-version: ${{ matrix.python-version }}\n"
 		check(t, body, want{"python", "3.9", 6}, want{"python", "3.13", 7})
 	})
+	// Every key of the file is read lowercased, so a key written with
+	// capitals is still the one the expression names.
+	t.Run("a key written with capitals", func(t *testing.T) {
+		body := "jobs:\n" +
+			"  a:\n" +
+			"    strategy:\n" +
+			"      matrix:\n" +
+			"        Python: ['3.9']\n" +
+			"        OS: [macos-13]\n" +
+			"    runs-on: ${{ matrix.OS }}\n" +
+			"    steps:\n" +
+			"      - uses: actions/setup-python@v5\n" +
+			"        with:\n" +
+			"          python-version: ${{ matrix.Python }}\n"
+		check(t, body, want{Runners, "macos-13", 6}, want{"python", "3.9", 5})
+	})
 	// A matrix lists what a job runs over, and a list may hold anything YAML
 	// allows. What is not a version to read is passed over, the rest of the
 	// list still being the versions the project supports.
