@@ -46,46 +46,62 @@ type Named struct {
 	Version string
 }
 
-// Read turns a reference into what it declares. reason is empty when the
-// reference could be read, and otherwise says why not, in words that name
-// what is missing; moving says the reference asks for the newest release
-// rather than a version, which is a reason there was never a date rather
-// than a line to go and look at.
+// Unread is a reference that could not be read as a version, and why not.
+//
+// Product is the software the name says, when it says one, and Text is what
+// was written where the version goes: python:latest is python and latest,
+// and an untagged sonatype/nexus is that name and nothing. Keeping the two
+// apart is what lets the catalog decide whether the software is tracked at
+// all, since a line about software nobody publishes a calendar for is set
+// aside whatever its tag says. A name that could not be read — a variable,
+// or nothing — leaves Product empty and the reference whole in Text.
+//
+// Moving says the reference asks for the newest release rather than a
+// version, which is a reason there was never a date rather than a line to
+// go and look at.
+type Unread struct {
+	Product string
+	Text    string
+	Reason  string
+	Moving  bool
+}
+
+// Read turns a reference into what it declares, or says why it declares no
+// version when ok is false.
 //
 // The product of a name outside the official library is that name, written
 // the way Docker Hub means it, for the catalog to look up among the images
 // its products publish. Whether anything is known about it is the catalog's
 // answer and not this package's.
-func Read(ref string) (ns []Named, reason string, moving bool) {
+func Read(ref string) (ns []Named, u Unread, ok bool) {
 	name, tag, digest := split(ref)
-	if strings.Contains(ref, "$") {
-		// Which half the variable is in is what the reader has to go and
-		// look at, and a tag that is a version of something unknown is not
-		// the same complaint as a tag nobody can read.
-		if strings.Contains(name, "$") {
-			return nil, "takes its image from a variable, so its contents are not known here", false
-		}
-		return nil, "takes its version from a variable", false
+	// Which half a variable is in is what the reader has to go and look at.
+	// A variable in the name leaves no software to speak of, while one in
+	// the tag still names software the catalog may or may not track.
+	if strings.Contains(name, "$") {
+		return nil, Unread{Text: ref, Reason: "takes its image from a variable, so its contents are not known here"}, false
 	}
 	product, official := officialName(name)
 	switch {
 	case product == "":
-		return nil, "names no image", false
+		return nil, Unread{Text: ref, Reason: "names no image"}, false
+	case strings.Contains(tag, "$"):
+		return nil, Unread{Product: product, Text: tag, Reason: "takes its version from a variable"}, false
 	case digest != "" && tag == "":
-		return nil, "is pinned by digest, which does not say which version it is", false
+		return nil, Unread{Product: product, Text: digest, Reason: "is pinned by digest, which does not say which version it is"}, false
 	case tag == "":
-		return nil, "names no tag, so it follows latest", true
+		return nil, Unread{Product: product, Reason: "names no tag, so it follows latest", Moving: true}, false
 	case tag == "latest":
-		return nil, "names latest, not a version", true
+		return nil, Unread{Product: product, Text: tag, Reason: "names latest, not a version", Moving: true}, false
 	}
 	ns = []Named{{Product: product, Version: versionOf(tag)}}
 	if !official {
 		// The variant convention is the official library's own. Another
 		// publisher's tag may end in any word at all, and reading one as a
 		// distribution would be the guess this package does not make.
-		return ns, "", false
+		return ns, Unread{}, true
 	}
-	return append(ns, base(tag)...), "", false
+	return append(ns, base(tag)...), Unread{}, true
 }
 
 // base reads the operating system an official image's tag says it was built

@@ -73,9 +73,9 @@ func (s Source) String() string {
 // apart from "nothing could be read".
 //
 // Product is the software the line is about, when the file names it apart
-// from the version: a tool list's key, a runtime file's name. It is empty
-// when the text itself names the software, as an image reference or a
-// runner label does. Carrying it is what lets a line about software
+// from the version: a tool list's key, a runtime file's name, an image's
+// name before its tag. It is empty when the text itself names the software,
+// as a runner label does. Carrying it is what lets a line about software
 // endoflife.date does not track be set aside like any other declaration of
 // it, instead of being reported because its version was a word. Ecosystem
 // goes with it and means what it means on Decl: a package name, answered by

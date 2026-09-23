@@ -108,7 +108,8 @@ func TestExtractAnchored(t *testing.T) {
 // written as a variable is not in the file.
 func TestExtractVariable(t *testing.T) {
 	ds, us, _ := Extract("compose.yml", []byte("services:\n  db:\n    image: postgres:${PG_TAG}\n"))
-	if len(ds) != 0 || len(us) != 1 || us[0].Reason != "takes its version from a variable" {
+	want := decl.Unreadable{Source: decl.Source{File: "compose.yml", Line: 3}, Product: "postgres", Text: "${PG_TAG}", Reason: "takes its version from a variable"}
+	if len(ds) != 0 || len(us) != 1 || us[0] != want {
 		t.Errorf("Extract = %+v, %+v", ds, us)
 	}
 }

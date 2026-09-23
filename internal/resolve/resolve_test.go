@@ -295,11 +295,10 @@ func TestAllSortsUnreadable(t *testing.T) {
 	}
 }
 
-// TestAllByImage covers a name outside the official library. It reaches a
-// product only when endoflife.date publishes that image for one, and a name
-// nobody published is a declaration of software the catalog does not track:
-// there was never a date to find, so it is set aside rather than reported.
-func TestAllByImage(t *testing.T) {
+// loadImage is a catalog holding one product published as an image outside
+// the official library.
+func loadImage(t *testing.T) *catalog.Catalog {
+	t.Helper()
 	c, err := catalog.Decode([]byte(`{"result":[
 	  {"name":"opensearch","aliases":[],"identifiers":[
 	    {"type":"purl","id":"pkg:docker/opensearchproject/opensearch"}
@@ -308,7 +307,15 @@ func TestAllByImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	r := All(c, []decl.Decl{
+	return c
+}
+
+// TestAllByImage covers a name outside the official library. It reaches a
+// product only when endoflife.date publishes that image for one, and a name
+// nobody published is a declaration of software the catalog does not track:
+// there was never a date to find, so it is set aside rather than reported.
+func TestAllByImage(t *testing.T) {
+	r := All(loadImage(t), []decl.Decl{
 		{Product: "opensearchproject/opensearch", Version: "1.3.0", Source: src("compose.yml")},
 		{Product: "acme/sandbox", Version: "0.2.10", Source: src("compose.yml")},
 	}, nil)
@@ -321,6 +328,39 @@ func TestAllByImage(t *testing.T) {
 	}
 	if len(r.Untracked) != 1 || r.Untracked[0].Product != "acme/sandbox" {
 		t.Errorf("Untracked = %+v; want the unpublished image alone", r.Untracked)
+	}
+}
+
+// TestAllByImageUnread: an image that names no version is still an image of
+// some software, and the catalog decides whether it is one it tracks before
+// the tag is complained about. A private image pinned by digest or tagged
+// with a variable has no calendar to miss, so only a published image's
+// digest is a line to go and look at.
+func TestAllByImageUnread(t *testing.T) {
+	digest := "is pinned by digest, which does not say which version it is"
+	noTag := "names no tag, so it follows latest"
+	pinned := decl.Unreadable{Source: src("a/Dockerfile"), Product: "opensearchproject/opensearch", Text: "sha256:00", Reason: digest}
+	moving := decl.Unreadable{Source: src("b/Dockerfile"), Product: "opensearchproject/opensearch", Reason: noTag, Moving: true}
+	r := All(loadImage(t), nil, []decl.Unreadable{
+		pinned,
+		moving,
+		{Source: src("c/Dockerfile"), Product: "acme/app", Text: "sha256:00", Reason: digest},
+		{Source: src("d/Dockerfile"), Product: "acme/app", Reason: noTag, Moving: true},
+		{Source: src("e/compose.yml"), Product: "acme/app", Text: "${APP_VERSION}", Reason: "takes its version from a variable"},
+	})
+	if len(r.Unreadable) != 1 || r.Unreadable[0] != pinned {
+		t.Errorf("Unreadable = %+v; want the published image's digest alone", r.Unreadable)
+	}
+	if len(r.Moving) != 1 || r.Moving[0] != moving {
+		t.Errorf("Moving = %+v; want the published image with no tag alone", r.Moving)
+	}
+	if len(r.Untracked) != 3 {
+		t.Fatalf("Untracked = %+v; want the three lines about acme/app", r.Untracked)
+	}
+	for _, d := range r.Untracked {
+		if d.Product != "acme/app" {
+			t.Errorf("Untracked = %+v; want the three lines about acme/app", r.Untracked)
+		}
 	}
 }
 

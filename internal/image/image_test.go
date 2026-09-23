@@ -51,9 +51,9 @@ func TestReadCaught(t *testing.T) {
 		{"a codename with a date", "ubuntu:jammy-20230624", "ubuntu", "jammy"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ns, reason, _ := Read(tt.ref)
-			if reason != "" {
-				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, reason)
+			ns, u, ok := Read(tt.ref)
+			if !ok {
+				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, u.Reason)
 			}
 			if len(ns) == 0 {
 				t.Fatalf("Read(%q) named nothing", tt.ref)
@@ -66,34 +66,39 @@ func TestReadCaught(t *testing.T) {
 }
 
 // TestReadReported is the half that is read and deliberately not matched.
-// Each names software this tool cannot identify from the line, so guessing
-// is what would put a wrong date on the timeline.
+// Each names no version this tool can place, so guessing is what would put
+// a wrong date on the timeline. The software is still named wherever the
+// name says it, so that the catalog can set aside what it does not track.
 func TestReadReported(t *testing.T) {
 	for _, tt := range []struct {
-		name, ref, reason string
-		moving            bool
+		name, ref string
+		want      Unread
 	}{
-		{"nothing at all", "", "names no image", false},
-		{"pinned by digest", "python@sha256:00",
-			"is pinned by digest, which does not say which version it is", false},
+		{"nothing at all", "", Unread{Reason: "names no image"}},
+		{"pinned by digest", "python@sha256:00", Unread{Product: "python", Text: "sha256:00",
+			Reason: "is pinned by digest, which does not say which version it is"}},
 		// A reference that follows the newest release was never going to
 		// have a date, so it is moving rather than a line to go and read.
-		{"no tag", "python", "names no tag, so it follows latest", true},
-		{"latest", "python:latest", "names latest, not a version", true},
-		{"a variable in the tag", "python:${PYTHON_VERSION}", "takes its version from a variable", false},
-		{"a variable in the name", "${REGISTRY}python:3.11-bullseye",
-			"takes its image from a variable, so its contents are not known here", false},
+		{"no tag", "python", Unread{Product: "python", Reason: "names no tag, so it follows latest", Moving: true}},
+		{"latest", "python:latest", Unread{Product: "python", Text: "latest", Reason: "names latest, not a version", Moving: true}},
+		{"a variable in the tag", "python:${PYTHON_VERSION}",
+			Unread{Product: "python", Text: "${PYTHON_VERSION}", Reason: "takes its version from a variable"}},
+		{"a variable in the name", "${REGISTRY}python:3.11-bullseye", Unread{Text: "${REGISTRY}python:3.11-bullseye",
+			Reason: "takes its image from a variable, so its contents are not known here"}},
+		// Outside the official library the name is the product as written,
+		// for the catalog to know or not.
+		{"another publisher's image with no tag", "sonatype/nexus",
+			Unread{Product: "sonatype/nexus", Reason: "names no tag, so it follows latest", Moving: true}},
+		{"another publisher's image by digest", "ghcr.io/acme/app@sha256:00", Unread{Product: "ghcr.io/acme/app", Text: "sha256:00",
+			Reason: "is pinned by digest, which does not say which version it is"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ns, reason, moving := Read(tt.ref)
-			if reason != tt.reason {
-				t.Fatalf("Read(%q) reason = %q; want %q", tt.ref, reason, tt.reason)
+			ns, u, ok := Read(tt.ref)
+			if ok || len(ns) != 0 {
+				t.Fatalf("Read(%q) = %+v; want nothing", tt.ref, ns)
 			}
-			if len(ns) != 0 {
-				t.Errorf("Read(%q) = %+v; want nothing", tt.ref, ns)
-			}
-			if moving != tt.moving {
-				t.Errorf("Read(%q) moving = %v; want %v", tt.ref, moving, tt.moving)
+			if u != tt.want {
+				t.Errorf("Read(%q) = %+v; want %+v", tt.ref, u, tt.want)
 			}
 		})
 	}
@@ -148,9 +153,9 @@ func TestReadBase(t *testing.T) {
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ns, reason, _ := Read(tt.ref)
-			if reason != "" {
-				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, reason)
+			ns, u, ok := Read(tt.ref)
+			if !ok {
+				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, u.Reason)
 			}
 			if !reflect.DeepEqual(ns, tt.want) {
 				t.Errorf("Read(%q) = %+v; want %+v", tt.ref, ns, tt.want)
@@ -180,9 +185,9 @@ func TestReadOutsideTheLibrary(t *testing.T) {
 		{"a namespace under a mirror's library path", "public.ecr.aws/docker/library/acme/python:3.7", "public.ecr.aws/docker/library/acme/python", "3.7"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ns, reason, _ := Read(tt.ref)
-			if reason != "" {
-				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, reason)
+			ns, u, ok := Read(tt.ref)
+			if !ok {
+				t.Fatalf("Read(%q) reason = %q; want none", tt.ref, u.Reason)
 			}
 			want := []Named{{Product: tt.product, Version: tt.version}}
 			if !reflect.DeepEqual(ns, want) {

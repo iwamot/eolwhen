@@ -52,9 +52,9 @@ func Extract(file string, data []byte) ([]decl.Decl, []decl.Unreadable) {
 			continue
 		}
 		src := decl.Source{File: file, Line: in.line}
-		ns, reason, moving := image.Read(ref)
-		if reason != "" {
-			us = append(us, decl.Unreadable{Source: src, Text: ref, Reason: reason, Moving: moving})
+		ns, u, ok := image.Read(ref)
+		if !ok {
+			us = append(us, decl.Unreadable{Source: src, Product: u.Product, Text: u.Text, Reason: u.Reason, Moving: u.Moving})
 			continue
 		}
 		for _, n := range ns {

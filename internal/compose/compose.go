@@ -86,9 +86,9 @@ func service(file string, svc yamlfile.Entry) ([]decl.Decl, []decl.Unreadable) {
 		return nil, nil
 	}
 	src := decl.Source{File: file, Line: e.Line()}
-	ns, reason, moving := image.Read(ref)
-	if reason != "" {
-		return nil, []decl.Unreadable{{Source: src, Text: ref, Reason: reason, Moving: moving}}
+	ns, u, ok := image.Read(ref)
+	if !ok {
+		return nil, []decl.Unreadable{{Source: src, Product: u.Product, Text: u.Text, Reason: u.Reason, Moving: u.Moving}}
 	}
 	ds := make([]decl.Decl, 0, len(ns))
 	for _, n := range ns {
