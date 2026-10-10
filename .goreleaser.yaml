@@ -32,6 +32,12 @@ homebrew_casks:
       owner: iwamot
       name: homebrew-tap
     skip_upload: "true"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/eolwhen"]
+          end
 
 checksum:
   name_template: 'checksums.txt'
