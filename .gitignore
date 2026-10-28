@@ -1,0 +1,5 @@
+# Build and coverage output
+/dist/
+/coverage.out
+/eolwhen
+/eolwhen.exe
