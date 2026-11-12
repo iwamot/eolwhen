@@ -262,7 +262,7 @@ Exit codes:
 - The same complaint from several places is said once, with a count. Nearly every workflow in a healthy repository says `runs-on: ubuntu-latest`, and knowing that once is enough; `grep` finds the rest.
 - The whole catalog — every product endoflife.date knows, with every cycle — is fetched from endoflife.date when a run needs it. There is no prebuilt database in the binary and nothing to update.
 - The endoflife.date API is beta and says breaking changes can happen, so only the fields this tool needs are read and the rest is ignored.
-- While the version is 0.x, the exit codes and the shape of the output can still change between releases; from 1.0 they only gain cases.
+- Within a major version, eolwhen preserves the meaning of existing exit codes and the names, types, and meanings of existing JSON fields. New JSON fields may be added.
 
 ## Out of scope
 
