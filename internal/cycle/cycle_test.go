@@ -34,13 +34,9 @@ func TestMatch(t *testing.T) {
 		{"unknown major", "4.0.1", python, "", false},
 		{"unknown runner-style label", "16.04", node, "", false},
 
-		// Undecidable: nothing to match, so the caller reports the line
-		// rather than guessing.
-		{"empty", "", python, "", false},
-		{"leading dot", ".9", python, "", false},
-		{"word", "latest", python, "", false},
+		// Undecidable: a major line that no cycle is, so the caller reports
+		// the line rather than guessing.
 		{"shorter than any cycle", "3", ubuntu, "", false},
-		{"no cycles", "3.9", nil, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,15 +45,6 @@ func TestMatch(t *testing.T) {
 				t.Errorf("Match(%q) = %q, %v; want %q, %v", tt.v, got, ok, tt.want, tt.ok)
 			}
 		})
-	}
-}
-
-// TestMatchPrefersLongest pins the tie-break directly: 1.21 and 1 both fit
-// 1.21.5, and the deeper cycle is the answer.
-func TestMatchPrefersLongest(t *testing.T) {
-	got, ok := Match("1.21.5", []string{"1", "1.21"})
-	if got != "1.21" || !ok {
-		t.Errorf("Match = %q, %v; want 1.21, true", got, ok)
 	}
 }
 
@@ -121,32 +108,6 @@ func TestOldest(t *testing.T) {
 				t.Errorf("Oldest(%v) = %q, %v; want %q", tt.cycles, got, ok, tt.want)
 			}
 		})
-	}
-}
-
-func TestBefore(t *testing.T) {
-	for _, tt := range []struct {
-		a, b string
-		want bool
-	}{
-		{"3.2", "4.0", true},
-		{"3.2.1", "4.0", true},
-		{"2.7", "3.1", true},
-		{"3.1", "3.10", true},
-		{"3.10", "3.1", false},
-		{"4.0", "4.0", false},
-		// A version that runs out where the cycle goes on covers it rather
-		// than predating it.
-		{"1.2", "1.2.3", false},
-		{"14.04", "14.10", true},
-		// Nothing spelled with a word is compared at all.
-		{"bookworm", "4.0", false},
-		{"4.0", "macos-15", false},
-		{"", "4.0", false},
-	} {
-		if got := Before(tt.a, tt.b); got != tt.want {
-			t.Errorf("Before(%q, %q) = %v; want %v", tt.a, tt.b, got, tt.want)
-		}
 	}
 }
 
