@@ -17,7 +17,7 @@ func TestAllows(t *testing.T) {
 		{"a bare version", []string{"6.1.7.6"}, "6.1.7.6", "6.1.7.7", true},
 		{"an equals", []string{"= 6.1.7"}, "6.1.7", "6.1.8", true},
 		{"a floor and a ceiling", []string{">= 6.0", "< 7"}, "6.0", "7", true},
-		{"a ceiling that admits itself", []string{">= 6.0", "<= 6.1"}, "6.0", "6.2", true},
+		{"a ceiling that admits itself", []string{">= 6.0", "<= 6.1"}, "6.0", "6.1.1", true},
 		{"an exclusive floor", []string{"> 6.0", "< 7"}, "6.0", "7", true},
 		{"a floor inside a pessimistic bound", []string{"~> 6.0", ">= 6.0.3"}, "6.0.3", "7", true},
 		{"the narrower of two ceilings", []string{"< 8", "< 7"}, "", "7", true},
@@ -25,6 +25,10 @@ func TestAllows(t *testing.T) {
 		{"the higher of two floors", []string{">= 6.0", ">= 6.5", "< 7"}, "6.5", "7", true},
 		{"a lower floor does not lower it", []string{">= 6.5", ">= 6.0", "< 7"}, "6.5", "7", true},
 		{"no space after the operator", []string{"~>6.1.0"}, "6.1.0", "6.2", true},
+		// A shorter version is padded with zeros, so an exact 7 is 7.0.0
+		// and not the 7 line.
+		{"a short exact version", []string{"= 7"}, "7.0.0", "7.0.1", true},
+		{"a short bare version", []string{"7"}, "7.0.0", "7.0.1", true},
 		{"one version excluded", []string{"~> 6.1.0", "!= 6.1.3"}, "6.1.0", "6.2", true},
 
 		// Not caught: nothing closes the upper end, so the version that got
