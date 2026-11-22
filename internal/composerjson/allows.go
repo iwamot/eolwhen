@@ -73,6 +73,10 @@ func allows(constraint string) (span.Span, bool) {
 			ceiling, _ := span.AfterCompatible(v)
 			s = s.AtLeast(v).Under(ceiling)
 		default:
+			if op == "" || op == "=" || op == "<=" {
+				// Composer pads the shorter version with zeros.
+				v = span.Padded(v)
+			}
 			narrowed, ok := s.Narrow(op, v)
 			if !ok {
 				return span.Span{}, false
