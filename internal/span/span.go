@@ -178,12 +178,12 @@ func AfterCompatible(v string) (string, bool) {
 // products a package reaches, which stop at major.minor.
 const paddedDepth = 3
 
-// Padded writes v out with zeros to major.minor.micro. PEP 440, RubyGems and
-// Poetry compare versions as if the shorter were padded with zeros, so an
-// exact 4 is 4.0.0 and admits no other 4.x, and a ceiling of <=4 stops at
-// 4.0.0 as well. Read as written, the version after 4 would be 5, and the
-// whole of the 4 line would be in the range. npm reads 4 as that line, and
-// works it out before it gets here.
+// Padded writes v out with zeros to major.minor.micro. PEP 440, RubyGems,
+// Poetry and Composer compare versions as if the shorter were padded with
+// zeros, so an exact 4 is 4.0.0 and admits no other 4.x, and a ceiling of <=4
+// stops at 4.0.0 as well. Read as written, the version after 4 would be 5,
+// and the whole of the 4 line would be in the range. npm reads 4 as that
+// line, and works it out before it gets here.
 func Padded(v string) string {
 	if n := strings.Count(v, ".") + 1; n < paddedDepth {
 		v += strings.Repeat(".0", paddedDepth-n)

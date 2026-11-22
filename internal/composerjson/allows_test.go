@@ -18,6 +18,10 @@ func TestAllows(t *testing.T) {
 		{"a wildcard on the patch", "8.1.*", "8.1", "8.2", true},
 		{"a wildcard on the minor", "8.*", "8", "9", true},
 		{"an exact version", "1.2.3", "1.2.3", "1.2.4", true},
+		// A shorter version is padded with zeros, so an exact 8 is 8.0.0
+		// and not the 8 line.
+		{"a short exact version", "8", "8.0.0", "8.0.1", true},
+		{"a short exact version with =", "=8", "8.0.0", "8.0.1", true},
 		{"one version excluded from a caret", "^8.0 !=8.0.3", "8.0", "9", true},
 		{"a v in front", "v1.2.3", "1.2.3", "1.2.4", true},
 		{"an equals", "=8.1.0", "8.1.0", "8.1.1", true},
@@ -25,7 +29,7 @@ func TestAllows(t *testing.T) {
 		{"two ends separated by a comma", ">=8.0,<9.0", "8.0", "9.0", true},
 		{"operators held away from their versions", ">= 8.0 < 9.0", "8.0", "9.0", true},
 		{"a caret narrowed further", "^8.0 <8.5", "8.0", "8.5", true},
-		{"a ceiling that admits itself", "<=8.1", "", "8.2", true},
+		{"a ceiling that admits itself", "<=8.1", "", "8.1.1", true},
 
 		// Not caught: more than one range is left behind, or none is closed.
 		{"a union", "^7.4 || ^8.0", "", "", false},
