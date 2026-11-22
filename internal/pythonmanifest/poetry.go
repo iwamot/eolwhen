@@ -224,6 +224,10 @@ func poetryAllows(constraint string) (span.Span, bool) {
 			ceiling, _ := span.AfterMinor(v)
 			s = s.AtLeast(v).Under(ceiling)
 		default:
+			if op == "" || op == "==" || op == "<=" {
+				// Poetry pads the shorter version with zeros.
+				v = span.Padded(v)
+			}
 			narrowed, ok := s.Narrow(comparison(op), v)
 			if !ok {
 				return span.Span{}, false

@@ -24,6 +24,11 @@ func TestPoetryAllows(t *testing.T) {
 		// and not PEP 440's, where every clause carries an operator.
 		{"4.2.0", "4.2.0", "4.2.1"},
 		{"==4.2.0", "4.2.0", "4.2.1"},
+		// A shorter version is padded with zeros, so it is one version too
+		// and not the line it would otherwise name.
+		{"4", "4.0.0", "4.0.1"},
+		{"==4.2", "4.2.0", "4.2.1"},
+		{">=3.9,<=4", "3.9", "4.0.1"},
 		// A wildcard names the line above it.
 		{"4.1.*", "4.1", "4.2"},
 		{"1.*", "1", "2"},
