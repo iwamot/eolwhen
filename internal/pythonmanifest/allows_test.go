@@ -63,6 +63,11 @@ func TestAllows(t *testing.T) {
 		{"==4.2.0", "4.2.0", "4.2.1"},
 		{"== 4.2.0", "4.2.0", "4.2.1"},
 		{"==v4.2.0", "4.2.0", "4.2.1"},
+		// A shorter pin is padded with zeros, so it is one version too and
+		// not the line it would otherwise name.
+		{"==4", "4.0.0", "4.0.1"},
+		{"==4.2", "4.2.0", "4.2.1"},
+		{">=3.9,<=4", "3.9", "4.0.1"},
 		// A wildcard names the line above it, which is how a requirements
 		// file asks for a release cycle by name.
 		{"==4.2.*", "4.2", "4.3"},

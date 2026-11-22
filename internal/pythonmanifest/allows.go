@@ -104,6 +104,9 @@ func allows(specifier string) (span.Span, bool) {
 			s = s.AtLeast(v).Under(ceiling)
 			continue
 		}
+		if op == "==" || op == "<=" {
+			v = padded(v)
+		}
 		narrowed, ok := s.Narrow(comparison(op), v)
 		if !ok {
 			return span.Span{}, false
@@ -114,6 +117,23 @@ func allows(specifier string) (span.Span, bool) {
 		return span.Span{}, false
 	}
 	return s, true
+}
+
+// paddedDepth is major.minor.micro, one deeper than the cycles of Python
+// and of the packages a Python requirement reaches, which stop at
+// major.minor.
+const paddedDepth = 3
+
+// padded writes v out with zeros to paddedDepth segments. PEP 440 compares
+// release segments as if the shorter were padded with zeros, so ==4 is
+// ==4.0.0 and admits no other 4.x, and <=4 stops at 4.0.0 as well. Read as
+// written, the version after 4 would be 5, and the whole of the 4 line
+// would be in the range.
+func padded(v string) string {
+	if n := strings.Count(v, ".") + 1; n < paddedDepth {
+		v += strings.Repeat(".0", paddedDepth-n)
+	}
+	return v
 }
 
 // comparison spells an operator the way Narrow reads it, which differs for
