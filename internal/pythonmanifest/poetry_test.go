@@ -31,6 +31,8 @@ func TestPoetryAllows(t *testing.T) {
 		{">=2.28,<3", "2.28", "3"},
 		{">=2.28, <3", "2.28", "3"},
 		{">4.2,<=4.2.9", "4.2", "4.2.10"},
+		// Excluding one version leaves the rest of its line in the range.
+		{">=4.2,<5,!=4.2.1", "4.2", "5"},
 	} {
 		t.Run(tt.constraint, func(t *testing.T) {
 			s, ok := poetryAllows(tt.constraint)
@@ -54,9 +56,10 @@ func TestPoetryAllowsReadsNothing(t *testing.T) {
 		// marker asks for something a number does not order.
 		">=1.0 || <2.0",
 		"^1.0@beta",
-		// An exclusion leaves a range with a hole in it.
+		// An exclusion narrows neither end, and an exclusion of a whole line
+		// is not Poetry.
 		"!=1.26.0",
-		">=4.2,<5,!=4.2.1",
+		">=4.2,<5,!=4.2.*",
 		// An operator in front of a wildcard is not Poetry, and a wildcard
 		// names a line only where what is left of it is a version.
 		"^1.2.*",

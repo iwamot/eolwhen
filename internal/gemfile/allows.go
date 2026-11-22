@@ -13,8 +13,8 @@ import (
 // something this does not read. There is no range to place then, and no
 // version either: a gem allowed to be anything from 6.0 upwards will be
 // whatever the resolver picked, which is written in the lockfile and not
-// here. An exclusion — != 6.1 — is the same answer from the other side, as
-// it takes a version out of the middle and narrows neither end.
+// here. An exclusion — != 6.1.3 — narrows neither end, and is read past: it
+// takes one version out of the middle, and the rest of its line stays.
 func allows(reqs []string) (span.Span, bool) {
 	if len(reqs) == 0 {
 		return span.Span{}, false
@@ -22,6 +22,12 @@ func allows(reqs []string) (span.Span, bool) {
 	var s span.Span
 	for _, req := range reqs {
 		op, v := split(req)
+		if op == "!=" {
+			// Excluding one version leaves the rest of its line, and a
+			// cycle is a line of versions, so the cycles the range reaches
+			// are the same with it or without it.
+			continue
+		}
 		// Everything below is arithmetic on a version, so a requirement
 		// that is not one is given up on here rather than in each branch.
 		if !span.Numeric(v) {

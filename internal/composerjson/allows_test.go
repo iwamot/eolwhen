@@ -18,6 +18,7 @@ func TestAllows(t *testing.T) {
 		{"a wildcard on the patch", "8.1.*", "8.1", "8.2", true},
 		{"a wildcard on the minor", "8.*", "8", "9", true},
 		{"an exact version", "1.2.3", "1.2.3", "1.2.4", true},
+		{"one version excluded from a caret", "^8.0 !=8.0.3", "8.0", "9", true},
 		{"a v in front", "v1.2.3", "1.2.3", "1.2.4", true},
 		{"an equals", "=8.1.0", "8.1.0", "8.1.1", true},
 		{"two ends separated by a space", ">=8.0 <9.0", "8.0", "9.0", true},
@@ -34,7 +35,8 @@ func TestAllows(t *testing.T) {
 		{"a hyphen range", "1.0 - 2.0", "", "", false},
 		{"a stability flag", "^8.0@dev", "", "", false},
 		{"a branch", "dev-main", "", "", false},
-		{"an exclusion", "!=8.0", "", "", false},
+		{"an exclusion alone", "!=8.0", "", "", false},
+		{"an exclusion of a whole line", "^8.0 !=8.1.*", "", "", false},
 		{"nothing at all", "", "", "", false},
 
 		// Undecidable: not a version to do arithmetic on.

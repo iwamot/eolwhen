@@ -204,6 +204,12 @@ func poetryAllows(constraint string) (span.Span, bool) {
 			s = s.AtLeast(line).Under(ceiling)
 			continue
 		}
+		if op == "!=" {
+			// Excluding one version leaves the rest of its line, and a
+			// cycle is a line of versions, so the cycles the range reaches
+			// are the same with it or without it.
+			continue
+		}
 		if !span.Numeric(v) {
 			return span.Span{}, false
 		}
