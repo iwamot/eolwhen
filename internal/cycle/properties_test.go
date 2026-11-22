@@ -53,9 +53,12 @@ func spellAll(vs [][]int) []string {
 
 // cycleLists are shaped like the catalogs a product has: flat majors,
 // major.minor lines, lines of mixed depth, cycles nested under one another,
-// and names that are words. One list starts at 9 and 10 alone, so its
-// oldest is not also first as text.
+// segments written with a leading zero as Ubuntu numbers its releases, and
+// names that are words. One list starts at 9 and 10 alone, so its oldest is
+// not also first as text.
 var cycleLists = [][]string{
+	{"22.04", "18.04", "14.10", "14.04"},
+	{"1", "1.21"},
 	{"10", "9", "1", "0"},
 	{"10.1", "10.0", "9.10", "9.9", "9.1", "1.10", "1.9", "1.1"},
 	{"10.1", "10.0", "9.10", "9.9"},
@@ -66,9 +69,14 @@ var cycleLists = [][]string{
 	nil,
 }
 
-// probes are versions the grid does not produce: nothing, a leading dot, a
-// word, and a word after a number.
-var probes = []string{"", ".9", ".10", "latest", "9.x", "9.x.1", "next"}
+// probes are versions the grid does not produce: nothing, a leading dot,
+// words, a word after a number, segments written with a leading zero, and
+// versions of real products whose segments the grid's do not reach.
+var probes = []string{
+	"", ".9", ".10", "latest", "9.x", "9.x.1", "next", "bookworm", "macos-15",
+	"14.04", "14.10", "22.04", "18.04.6",
+	"2.7", "3.1", "3.2", "3.2.1", "3.10", "4.0", "1.2", "1.2.3", "1.21.5",
+}
 
 func versions() []string { return append(spellAll(grid(3)), probes...) }
 
@@ -197,16 +205,23 @@ func within(v []int, s span.Span) bool {
 
 func TestSoleIsTheOneCycleAnAllowedVersionIsUnder(t *testing.T) {
 	bounds := spellAll(grid(2))
-	candidates := spellAll(grid(4))
 	for _, cycles := range cycleLists {
+		// Versions under each cycle are candidates too, so a cycle whose
+		// segments the grid does not reach — 1.21 — has versions to count.
+		candidates := spellAll(grid(4))
+		for _, c := range cycles {
+			for _, suffix := range []string{"", ".0", ".1", ".9", ".10"} {
+				candidates = append(candidates, c+suffix)
+			}
+		}
 		for _, from := range append(bounds, "") {
 			for _, below := range bounds {
 				s := span.Span{From: from, Below: below}
 				var reached []string
 				for _, c := range cycles {
 					if slices.ContainsFunc(candidates, func(v string) bool {
-						n, _ := numeric(v)
-						return under(v, c) && within(n, s)
+						n, ok := numeric(v)
+						return ok && under(v, c) && within(n, s)
 					}) {
 						reached = append(reached, c)
 					}
