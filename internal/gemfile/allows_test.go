@@ -25,6 +25,7 @@ func TestAllows(t *testing.T) {
 		{"the higher of two floors", []string{">= 6.0", ">= 6.5", "< 7"}, "6.5", "7", true},
 		{"a lower floor does not lower it", []string{">= 6.5", ">= 6.0", "< 7"}, "6.5", "7", true},
 		{"no space after the operator", []string{"~>6.1.0"}, "6.1.0", "6.2", true},
+		{"one version excluded", []string{"~> 6.1.0", "!= 6.1.3"}, "6.1.0", "6.2", true},
 
 		// Not caught: nothing closes the upper end, so the version that got
 		// installed is in the lockfile rather than here.
@@ -32,8 +33,9 @@ func TestAllows(t *testing.T) {
 		{"a floor alone", []string{">= 6.0"}, "", "", false},
 		{"a floor and an exclusion", []string{">= 6.0", "!= 6.1"}, "", "", false},
 
+		{"an exclusion alone", []string{"!= 6.1"}, "", "", false},
+
 		// Undecidable: the version is not one this can order.
-		{"an exclusion", []string{"!= 6.1"}, "", "", false},
 		{"a pre-release", []string{"~> 7.1.0.rc1"}, "", "", false},
 		{"a word", []string{"latest"}, "", "", false},
 		{"an empty requirement", []string{""}, "", "", false},

@@ -54,6 +54,12 @@ func allows(constraint string) (span.Span, bool) {
 			s = s.AtLeast(line).Under(ceiling)
 			continue
 		}
+		if op == "!=" {
+			// Excluding one version leaves the rest of its line, and a
+			// cycle is a line of versions, so the cycles the range reaches
+			// are the same with it or without it.
+			continue
+		}
 		// Everything below is arithmetic on a version, so a requirement
 		// that is not one is given up on here rather than in each branch.
 		if !span.Numeric(v) {

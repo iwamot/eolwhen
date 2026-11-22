@@ -74,6 +74,8 @@ func TestAllows(t *testing.T) {
 		{">=4.2, < 5", "4.2", "5"},
 		{">4.2,<=4.2.9", "4.2", "4.2.10"},
 		{"<5", "", "5"},
+		// Excluding one version leaves the rest of its line in the range.
+		{">=4.2,<5,!=4.2.1", "4.2", "5"},
 	} {
 		t.Run(tt.specifier, func(t *testing.T) {
 			s, ok := allows(tt.specifier)
@@ -92,10 +94,11 @@ func TestAllowsReadsNothing(t *testing.T) {
 		">4.2",
 		"",
 		"   ",
-		// An exclusion leaves a range with a hole in it, and an arbitrary
-		// equality is not ordered against anything.
+		// An exclusion narrows neither end, an exclusion of a whole line can
+		// take a cycle out of the range, and an arbitrary equality is not
+		// ordered against anything.
 		"!=1.26.0",
-		">=4.2,<5,!=4.2.1",
+		">=4.2,<5,!=4.2.*",
 		"===4.2.0",
 		// A wildcard belongs to equality alone, and names a line only where
 		// what is left of it is a version.
